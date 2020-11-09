@@ -1,8 +1,13 @@
-// [[Rcpp::plugins(cpp11)]]
+// [[Rcpp::plugins(openmp, cpp11)]]
+// [[Rcpp::depends(RcppArmadillo, psqn)]]
+#include <RcppArmadillo.h>
+#include "psqn.h"
+#include "psqn-reporter.h"
 #include <cmath>
-#include <Rcpp.h>
 #include <array>
 #include <limits>
+#include <memory.h>
+#include <algorithm>
 
 /*
  *  R : A Computer Language for Statistical Data Analysis
@@ -166,11 +171,14 @@ Brent_fmin(double ax, double bx, OptBoj &obj, double tol) noexcept
 
 namespace ghq {
 /// Gauss–Hermite quadrature weights
-constexpr int const n_ghq = 28L;
+constexpr int const n_ghq_many = 40L, 
+                    n_ghq_few  = 20L;
 /// the GHQ weights 
-constexpr double const ws[n_ghq] = { 1.14013934790367e-19, 8.3159379512068e-16, 6.63943671490957e-13, 1.4758531682777e-10, 1.32568250154172e-08, 5.857719720993e-07, 1.43455042297144e-05, 0.000210618100024033, 0.00195733129440897, 0.0119684232143548, 0.0495148892898983, 0.141394609786955, 0.282561391259389, 0.398604717826451, 0.398604717826451, 0.282561391259388, 0.141394609786955, 0.0495148892898982, 0.0119684232143548, 0.00195733129440898, 0.000210618100024033, 1.43455042297145e-05, 5.85771972099299e-07, 1.32568250154172e-08, 1.47585316827766e-10, 6.63943671490963e-13, 8.31593795120661e-16, 1.14013934790364e-19 };
+constexpr double const ws_many[n_ghq_many] = { 2.59104371384724e-29, 8.54405696377501e-25, 2.56759336541157e-21, 1.98918101211647e-18, 6.00835878949072e-16, 8.8057076452162e-14, 7.15652805269044e-12, 3.52562079136532e-10, 1.12123608322759e-08, 2.41114416367052e-07, 3.63157615069303e-06, 3.9369339810925e-05, 0.00031385359454133, 0.00187149682959795, 0.00846088800825812, 0.0293125655361725, 0.0784746058654042, 0.163378732713271, 0.265728251877377, 0.338643277425589, 0.33864327742559, 0.265728251877377, 0.163378732713271, 0.0784746058654045, 0.0293125655361724, 0.0084608880082581, 0.00187149682959798, 0.00031385359454133, 3.93693398109249e-05, 3.631576150693e-06, 2.41114416367055e-07, 1.12123608322757e-08, 3.52562079136553e-10, 7.15652805269027e-12, 8.80570764521616e-14, 6.00835878949095e-16, 1.98918101211646e-18, 2.56759336541157e-21, 8.54405696377538e-25, 2.59104371384712e-29 }, 
+                       ws_few [n_ghq_few ] = { 2.22939364553414e-13, 4.39934099227314e-10, 1.08606937076927e-07, 7.80255647853208e-06, 0.000228338636016353, 0.00324377334223785, 0.0248105208874637, 0.109017206020023, 0.286675505362834, 0.46224366960061, 0.46224366960061, 0.286675505362835, 0.109017206020023, 0.0248105208874636, 0.00324377334223785, 0.000228338636016355, 7.80255647853212e-06, 1.08606937076928e-07, 4.39934099227318e-10, 2.22939364553414e-13 };
 /// the GHQ nodes 
-constexpr double const nodes[n_ghq] = { -6.59160544236775, -5.85701464138285, -5.24328537320294, -4.69075652394311, -4.17663674212927, -3.68913423846168, -3.22111207656146, -2.76779535291359, -2.32574984265644, -1.89236049683768, -1.46553726345741, -1.04353527375421, -0.624836719505209, -0.208067382690736, 0.208067382690737, 0.624836719505209, 1.04353527375421, 1.46553726345741, 1.89236049683769, 2.32574984265644, 2.76779535291359, 3.22111207656145, 3.68913423846168, 4.17663674212927, 4.69075652394312, 5.24328537320293, 5.85701464138285, 6.59160544236774 };
+constexpr double const nodes_many[n_ghq_many] = { -8.09876113925084, -7.41158253148548, -6.84023730524935, -6.32825535122008, -5.8540950560304, -5.40665424797012, -4.97926097854525, -4.5675020728444, -4.1682570668325, -3.77920675343523, -3.39855826585963, -3.02487988390128, -2.6569959984429, -2.29391714187508, -1.9347914722823, -1.57886989493161, -1.22548010904629, -0.874006612357088, -0.523874713832277, -0.174537214597582, 0.174537214597582, 0.523874713832277, 0.874006612357089, 1.22548010904629, 1.57886989493162, 1.9347914722823, 2.29391714187508, 2.6569959984429, 3.02487988390129, 3.39855826585963, 3.77920675343522, 4.1682570668325, 4.56750207284439, 4.97926097854526, 5.40665424797013, 5.8540950560304, 6.32825535122008, 6.84023730524936, 7.41158253148547, 8.09876113925085 },
+                       nodes_few [n_ghq_few ] = { -5.38748089001123, -4.60368244955075, -3.94476404011563, -3.34785456738322, -2.78880605842813, -2.25497400208928, -1.73853771211659, -1.23407621539532, -0.737473728545394, -0.245340708300901, 0.245340708300901, 0.737473728545395, 1.23407621539532, 1.73853771211659, 2.25497400208928, 2.78880605842813, 3.34785456738322, 3.94476404011563, 4.60368244955074, 5.38748089001123 };
 } // namespace GHQ
 
 namespace partition {
@@ -191,84 +199,105 @@ struct logit {
     mode_finder(double const mu, double const sigma): 
       mu(mu), sigma(sigma) { }
     
-    inline double optimfunc(double x) noexcept {
+    inline double optimfunc(double const x) noexcept {
       double const eta = sigma * x + mu, 
                 p_term = eta > 30 ? eta :  std::log(1 + std::exp(eta));
       return .5 * x * x - std::log(p_term);
     }
     
     double operator()() noexcept {
-      double lb = 0, 
-             ub = sigma, 
-            out(std::numeric_limits<double>::quiet_NaN());
+      // we work on the log scale
       constexpr double const eps = 1e-4;
+      double ub = std::min(3., sigma), 
+             lb = eps; // optimum has a lower bounded of zero 
+      
+      double out(std::numeric_limits<double>::quiet_NaN());
       for(int i = 0; i < 100; ++i){
         out = Brent_fmin(lb, ub, *this, eps);
-        
-        // check that we not at a boundary
-        double const diff = ub - lb;
-        if(std::abs(out - lb) < 1.25 * eps){
-          ub = lb;
-          lb -= 5 * diff;
-          continue;
-        }
+
+        // check that we are not at a boundary
         if(std::abs(out - ub) < 1.25 * eps){
-          lb = ub;
+          double const diff = ub - lb;
+          lb = ub - 2  * eps;
           ub += 5 * diff;
           continue;
         }
-        
+
         break;
       }
-      
+
       return out;
     }
   };
   
+  /// computes the scale to use in adaptive Gauss–Hermite quadrature.
+  static inline double get_scale(double const mode_eta, 
+                                 double const sigma) noexcept {
+    if(mode_eta > 50){
+      double const h1 = mode_eta, 
+                   h2 = -1, 
+                 hess = -1 + (sigma / h1) * (sigma / h1) * h2;
+      return std::sqrt(-1/hess);
+      
+    }
+    
+    double const exp_m = exp(mode_eta), 
+                    h1 = log(1 + exp_m), 
+                    h2 = (exp_m / (1 + exp_m)) * 
+                      ((h1 - exp_m) / (1 + exp_m)), 
+                  hess = -1 + (sigma / h1) * (sigma / h1) * h2;
+    return std::sqrt(-1/hess);
+  }
+  
   /// evalutes the expected partition function 
-  static inline double B(double const mu, double const sigma) noexcept {
+  template<double const ns[], double const ws[], int n_nodes>
+  static inline double B_inner
+    (double const mu, double const sigma) noexcept {
     double out(0.);
     
     if(!adaptive){
-      for(int i = 0; i < ghq::n_ghq; ++i){
-        double const x = sqrt_2 * sigma * ghq::nodes[i] + mu, 
+      for(int i = 0; i < n_nodes; ++i){
+        double const x = sqrt_2 * sigma * ns[i] + mu, 
                   mult = x > 30 ? x : std::log(1 + exp(x));
-        out += mult * ghq::ws[i];
+        out += mult * ws[i];
       }
       
       return out * sqrt_pi_inv;
     }
     
     // get the mode and scale to use
-    double const mode = mode_finder(mu, sigma)(),
-             mode_eta = sigma * mode + mu,
-                exp_m = exp(mode_eta),
-                   h1 = mode_eta > 30 ? mode_eta : log(1 + exp_m), 
-                 hess = 
-                   -1 + sigma * sigma * exp_m / (1 + exp_m) / (1 + exp_m) * 
-                   (h1 - exp_m) / h1 / h1,
-                scale = std::sqrt(-1/hess);
-    
-    for(int i = 0; i < ghq::n_ghq; ++i){
-      double const y = ghq::nodes[i], 
+    double const mode = mode_finder(mu, sigma)(), // ~ 1/5 of comp time?
+                scale = get_scale(sigma * mode + mu, sigma);
+
+    for(int i = 0; i < n_nodes; ++i){
+      double const y = ns[i], 
                    z = scale * y + mode,
                    x = sigma * z + mu, 
                 mult = x > 30 ? x : std::log(1 + exp(x));
-      out += mult * exp(y * y - z * z * .5) * ghq::ws[i];
+      out += mult * exp(y * y - z * z * .5) * ws[i];
     }
     
     return out * sqrt_2pi_inv * scale;
   }
   
+  static inline double B(double const mu, double const sigma) noexcept {
+    bool const use_many = mu * mu * 0.1111111 + sigma * sigma > 1;
+    return use_many ? 
+      B_inner<ghq::nodes_many, ghq::ws_many, ghq::n_ghq_many>(mu, sigma) : 
+      B_inner<ghq::nodes_few , ghq::ws_few , ghq::n_ghq_few >(mu, sigma);
+    
+  }
+  
   /// evaluates the derivatives of the expected partition function 
-  static inline std::array<double, 2L> Bp
+  template<double const ns[], double const ws[], int n_nodes>
+  static inline std::array<double, 2L> Bp_inner
   (double const mu, double const sigma) noexcept {
     std::array<double, 2L> out = { 0, 0 };
     if(!adaptive){
-      for(int i = 0; i < ghq::n_ghq; ++i){
-        double const mult = sqrt_2 * ghq::nodes[i],
+      for(int i = 0; i < n_nodes; ++i){
+        double const mult = sqrt_2 * ns[i],
                         x = mult * sigma + mu, 
-                    d_eta = ghq::ws[i] / (1 + exp(-x));
+                    d_eta = ws[i] / (1 + exp(-x));
         out[0] +=        d_eta; // dmu
         out[1] += mult * d_eta; // dsigma
       }
@@ -280,19 +309,13 @@ struct logit {
     
     // get the mode and scale to use
     double const mode = mode_finder(mu, sigma)(),
-             mode_eta = sigma * mode + mu,
-                exp_m = exp(mode_eta),
-                   h1 = mode_eta > 30 ? mode_eta : log(1 + exp_m), 
-                 hess = 
-                   -1 + sigma * sigma * exp_m / (1 + exp_m) / (1 + exp_m) * 
-                   (h1 - exp_m) / h1 / h1,
-                scale = std::sqrt(-1/hess);
+                scale = get_scale(sigma * mode + mu, sigma);
     
-    for(int i = 0; i < ghq::n_ghq; ++i){
-      double const y = ghq::nodes[i], 
+    for(int i = 0; i < n_nodes; ++i){
+      double const y = ns[i], 
                    z = scale * y + mode,
                    x = sigma * z + mu,
-               d_eta = exp(y * y - z * z * .5) * ghq::ws[i] / (1 + exp(-x));
+               d_eta = exp(y * y - z * z * .5) * ws[i] / (1 + exp(-x));
       out[0] +=     d_eta; // dmu
       out[1] += z * d_eta; // dsigma
     }
@@ -301,6 +324,14 @@ struct logit {
     out[0] *= w;
     out[1] *= w;
     return out;
+  }
+  
+  static inline std::array<double, 2L> Bp
+    (double const mu, double const sigma) noexcept {
+    bool const use_many = mu * mu * 0.1111111 + sigma * sigma > 1;
+    return use_many ? 
+      Bp_inner<ghq::nodes_many, ghq::ws_many, ghq::n_ghq_many>(mu, sigma) : 
+      Bp_inner<ghq::nodes_few , ghq::ws_few , ghq::n_ghq_few >(mu, sigma);
   }
 };
 } // namespace partition
@@ -339,18 +370,19 @@ f <- function(x, mu, sigma)
   dnorm(x) * ifelse(x > 30, x, log(1 + exp(sigma * x + mu)))
 
 # check the relative error
-mus <- seq(-4, 4, length.out = 25)
-sigmas <- seq(.1, 4, length.out = 25)
+mus <- seq(-4, 4, length.out = 100)
+sigmas <- seq(.1, 3, length.out = 100)
 grid <- expand.grid(mu = mus, sigma = sigmas)
 
 rel_err <- mapply(function(mu, sigma){
-  truth <- integrate(f, -Inf, Inf, mu = mu, sigma = sigma, rel.tol = 1e-12)
+  truth <- integrate(f, -Inf, Inf, mu = mu, sigma = sigma, rel.tol = 1e-13)
   est <- logit_partition(mu = mu, sigma = sigma, order = 0)
   (truth$value - est) / truth$value 
 }, mu = grid$mu, sigma = grid$sigma)
 
 # plot the errors
 range(rel_err) # range of the relative errors
+log10(max(abs(rel_err))) # digits of precision
 contour(mus, sigmas, matrix(rel_err, length(mus)), 
         xlab = expression(mu), ylab = expression(sigma), 
         main = "Relative error of E(logit partition)")
@@ -381,17 +413,607 @@ rel_err <- mapply(function(mu, sigma){
 
 # plot the errors
 range(rel_err[1, ]) # range of the relative errors (dmu)
+log10(max(abs(rel_err[1, ]))) # digits of precision
 contour(mus, sigmas, matrix(rel_err[1,], length(mus)), 
         xlab = expression(mu), ylab = expression(sigma), 
         main = "Relative error of dE(logit partition) / dmu")
 
 range(rel_err[2, ]) # range of the relative errors (dsigma)
+log10(max(abs(rel_err[2, ])))
 contour(mus, sigmas, matrix(rel_err[2,], length(mus)), 
         xlab = expression(mu), ylab = expression(sigma), 
         main = "Relative error of dE(logit partition) / dsigma")
 
-# # check the computation time
-bench::mark( f = logit_partition(mu = 1, sigma = 2, order = 0),
-            df = logit_partition(mu = 1, sigma = 2, order = 1),
-            min_time = 1, max_iterations = 1e6, check = FALSE)
+# check the computation time
+bench::mark( f = logit_partition(mu = 1, sigma = 1.33, order = 0),
+            df = logit_partition(mu = 1, sigma = 1.33, order = 1),
+            min_time = .5, max_iterations = 1e6, check = FALSE)
+
+# also work with extreme inputs
+for(mu in c(-40, -20, -10, 10, 20, 40))
+  for(sigma in c(100, 400, 800)){
+    f  <- logit_partition(mu = mu, sigma = sigma, order = 0)
+    dp <- logit_partition(mu = mu, sigma = sigma, order = 1)
+    cat(sprintf("mu = %4d, sigma = %4d: %7.2f %7.2f %7.2f\n", 
+                mu, sigma, f, dp[1], dp[2]))
+  }
+
+# plot partial derivatives for extreme sigmas
+sds <- seq(1, 1000, length.out = 1000)
+matplot(sds, t(sapply(sds, logit_partition, mu = 20, order = 1)), 
+        type = "l", lty = 1, xlab = expression(sigma), 
+        ylab = "Partial derivatives")
+*/
+
+
+// implement the lower bound 
+
+/// simple function to avoid copying a vector. You can ignore this
+inline arma::vec vec_no_cp(double const * x, size_t const n_ele){
+  return arma::vec(const_cast<double *>(x), n_ele, false);
+}
+
+/** Computes LL^T where L is a lower triangular matrix. The argument is a
+    a vector with the non-zero elements in column major order. The diagonal 
+    entries are on the log scale. The methods returns both L and LL^T.  */
+std::array<arma::mat, 2L> get_pd_mat(double const *theta, int dim){
+  arma::mat L(dim, dim, arma::fill::zeros); // TODO: memory allocation
+  for(int j = 0; j < dim; ++j){
+    L.at(j, j) = std::exp(*theta++);
+    for(int i = j + 1; i < dim; ++i)
+      L.at(i, j) = *theta++;
+  }
+  
+  return { L * L.t(), std::move(L) }; // TODO: memory allocation
+}
+
+arma::uvec get_commutation_unequal_vec
+  (unsigned const n, unsigned const m, bool const transpose){
+  unsigned const nm = n * m,
+            nnm_p1 = n * nm + 1L,
+             nm_pm = nm + m;
+  arma::uvec out(nm);
+  arma::uword * const o_begin = out.begin();
+  size_t idx = 0L;
+  for(unsigned i = 0; i < n; ++i, idx += nm_pm){
+    size_t idx1 = idx;
+    for(unsigned j = 0; j < m; ++j, idx1 += nnm_p1)
+      if(transpose)
+        *(o_begin + idx1 / nm) = (idx1 % nm);
+      else
+        *(o_begin + idx1 % nm) = (idx1 / nm);
+  }
+
+  return out;
+}
+
+// cached version of the above
+arma::uvec const & get_commutation_unequal_vec_cached(unsigned const n){
+  constexpr std::size_t n_cache = 1000L;
+  if(n > n_cache or n == 0L)
+    throw std::invalid_argument(
+        "get_commutation_unequal_vec_cached: invalid n (too large or zero)");
+
+  static std::array<arma::uvec, n_cache> cached_values;
+
+  unsigned const idx = n - 1L;
+  bool has_value = cached_values[idx].n_elem > 0;
+
+  if(has_value)
+    return cached_values[idx];
+
+#ifdef _OPENMP
+#pragma omp critical (coomuCached)
+{
+#endif
+  has_value = cached_values[idx].n_elem > 0;
+  if(!has_value)
+    cached_values[idx] =
+      get_commutation_unequal_vec(n, n, false);
+#ifdef _OPENMP
+}
+#endif
+  return cached_values[idx];
+}
+
+/**
+ * computes x (X (x) I) where X is a k x p matrix, I is an l dimensional
+ * diagonal matrix and x is an l x k vector. The result is stored in the
+ * p x l dimensional output.
+ */
+inline void x_dot_X_kron_I
+  (arma::vec const &x, arma::mat const &X, int const l,
+   double * const __restrict__ out) {
+  int const k = X.n_rows,
+            p = X.n_cols,
+           pl = p * l;
+  std::fill(out, out + pl, 0.);
+
+  for(int c = 0; c < p; ++c){
+    for(int r = 0; r < k; ++r){
+      double const mult = X.at(r, c);
+      double const * const x_end = x.memptr() + r * l + l;
+      double * o = out + c * l;
+      for(double const * xp = x.memptr() + r * l;
+          xp != x_end; ++xp, ++o)
+        *o += *xp * mult;
+    }
+  }
+}
+
+/** computes the deratives of get_pd_mat. gr is a Jacobian vector 
+    which is used as part of the chain rule. res holds the memory for the 
+    result and has the same dimension as the pointer passed to 
+    get_pd_mat. */
+void d_get_pd_mat(arma::vec const &gr, arma::mat const &L, 
+                  double * res){
+  arma::vec gr_term = gr; // TODO: memory allocation 
+  int const n = L.n_cols;
+  arma::uvec const &com_vec = get_commutation_unequal_vec_cached(n);
+  gr_term += gr(com_vec);
+  
+  arma::mat jac(n, n); // TODO: memory allocation 
+  x_dot_X_kron_I(gr_term, L, n, jac.begin());
+
+  // copy the lower triangel and scale the diagonal entries  
+  double * r = res;
+  for(int j = 0; j < n; ++j){
+    *r++ = L.at(j, j) * jac.at(j, j);
+    for(int i = j + 1; i < n; ++i)
+      *r++ = jac.at(i, j);
+  }
+}
+
+// functions to check the above
+// [[Rcpp::export(rng = false)]]
+Rcpp::List get_pd_mat(Rcpp::NumericVector theta, int const dim){
+  auto res = get_pd_mat(&theta[0], dim);
+  return Rcpp::List::create(Rcpp::Named("X") = res[0], 
+                            Rcpp::Named("L") = res[1]);
+}
+
+// [[Rcpp::export(rng = false)]]
+Rcpp::NumericVector d_get_pd_mat(arma::vec const &gr, arma::mat const &L){
+  int const n = L.n_cols;
+  Rcpp::NumericVector out((n * (n + 1)) / 2);
+  d_get_pd_mat(gr, L, &out[0]);
+  return out;
+}
+
+/***R
+# setup
+n <- 5
+set.seed(1L)
+X <- drop(rWishart(1, n, diag(n)))
+L <- t(chol(X))
+diag(L) <- log(diag(L))
+theta <- L[lower.tri(L, TRUE)]
+
+# checks
+all.equal(X, get_pd_mat(theta, n)[[1L]])
+
+gr_truth <- grad(
+  function(x) sum(sin(get_pd_mat(x, n)[[1L]])), theta)
+gr <- cos(c(X))
+L <- get_pd_mat(theta, n)[[2L]]
+all.equal(gr_truth, d_get_pd_mat(gr, L))
+
+# should not be a bottleneck?
+# bench::mark(
+#     get_pd_mat = get_pd_mat(theta, n), 
+#   d_get_pd_mat = d_get_pd_mat(cos(c(X)), L),
+#   check = FALSE, min_time = 1, max_iterations = 1e6)
+*/
+
+class lower_bound_term {
+  arma::vec const y, nis;
+  arma::mat const X, Z;
+  
+  int const n_beta = X.n_rows, 
+             n_rng = Z.n_rows,
+             n_sig = (n_rng * (n_rng + 1L)) / 2L,
+             n_obs = y.n_elem;
+  
+  double const norm_constant;
+  
+public:
+  lower_bound_term(arma::vec const &y, arma::vec const &nis, 
+                   arma::mat const &X, arma::mat const &Z): 
+  y(y), nis(nis), X(X), Z(Z), 
+  norm_constant(([&]() -> double {
+    if(static_cast<size_t>(n_obs) != nis.n_elem)
+      // have to check this now
+      throw std::invalid_argument("invalid nis");
+    
+    double out(n_rng / 2.);
+    for(int i = 0; i < n_obs; ++i)
+      out += std::lgamma(nis[i] + 1) - std::lgamma(y[i] + 1) - 
+        std::lgamma(nis[i] - y[i] + 1);
+    return -out;
+  })()) {
+    // checks
+    if(X.n_cols != static_cast<size_t>(n_obs))
+      throw std::invalid_argument("invalid X");
+    if(Z.n_cols != static_cast<size_t>(n_obs))
+      throw std::invalid_argument("invalid X");
+  }
+  
+  lower_bound_term(Rcpp::List dat):
+  lower_bound_term(Rcpp::as<arma::vec>(dat["y"]),
+                   Rcpp::as<arma::vec>(dat["nis"]),
+                   Rcpp::as<arma::mat>(dat["X"]),
+                   Rcpp::as<arma::mat>(dat["Z"])) { }
+  
+  size_t global_dim() const {
+    return n_beta + n_sig;
+  }
+  size_t private_dim() const {
+    return n_rng + n_sig;
+  }
+  
+  template<bool comp_grad>
+  double comp(double const *p, double *gr) const {
+    // setup the objects we need
+    int const beta_start = 0, 
+               Sig_start = beta_start + n_beta, 
+             va_mu_start = Sig_start + n_sig, 
+               Lam_start = va_mu_start + n_rng;
+    arma::vec const beta = vec_no_cp(p + beta_start , n_beta), 
+                   va_mu = vec_no_cp(p + va_mu_start, n_rng); 
+    
+    auto const Sig_L = get_pd_mat(p + Sig_start, n_rng);
+    auto       Lam_L = get_pd_mat(p + Lam_start, n_rng);
+    arma::mat const &Sig = Sig_L[0];
+    arma::mat       &Lam = Lam_L[0];
+    
+    // objects for partial derivatives
+    arma::vec dbeta(gr + beta_start , comp_grad ? n_beta : 0, false), 
+             dva_mu(gr + va_mu_start, comp_grad ? n_rng  : 0, false);
+    arma::mat dSig, dLam;
+    if(comp_grad){
+      dbeta.zeros();
+      dva_mu.zeros();
+      
+      dSig.zeros(n_rng, n_rng); // TODO: memory allocation
+      dLam.zeros(n_rng, n_rng); // TODO: memory allocation
+    }
+    
+    // evaluate the lower bound. Start with the terms from the conditional 
+    // density of the outcomes
+    double out(norm_constant);
+    for(int i = 0; i < n_obs; ++i){
+      // TODO: replace arma::dot
+      double const eta = 
+        arma::dot(X.col(i), beta) + arma::dot(Z.col(i), va_mu), 
+              cond_sd  = std::sqrt(std::abs(
+                arma::dot(Z.col(i), Lam * Z.col(i)))); // TODO: expensive quad form
+      double const B = partition::logit<true>::B(eta, cond_sd);
+      out += -y[i] * eta + nis[i] * B;
+      
+      if(comp_grad){
+        auto const Bp = partition::logit<true>::Bp(eta, cond_sd);
+        double const d_eta = -y[i] + nis[i] * Bp[0];
+        dbeta  += d_eta * X.col(i);
+        dva_mu += d_eta * Z.col(i);
+        
+        double const mult = nis[i] * Bp[1] / cond_sd * .5;
+        for(int k = 0; k < n_rng; ++k){
+          for(int j = 0; j < k; ++j){
+            double const term = mult * Z.at(k, i) * Z.at(j, i); 
+            dLam.at(j, k) += term;
+            dLam.at(k, j) += term;
+          }
+          dLam.at(k, k) += mult * Z.at(k, i) * Z.at(k, i); 
+        }
+      }
+    }
+    
+    // terms from the log of the ratio of the unconditional random effect 
+    // density and the variational density
+    double half_term(0.), 
+               deter, 
+              unused;
+    
+    // determinant terms
+    arma::mat sig_inv;
+    if(!arma::inv_sympd(sig_inv, Sig)){  // TODO: memory allocation
+      sig_inv.zeros(n_rng, n_rng);
+      half_term = std::numeric_limits<double>::quiet_NaN();
+    }
+    
+    arma::log_det(deter, unused, Sig);
+    half_term -= deter;
+    arma::log_det(deter, unused, Lam);
+    half_term += deter;
+    
+    // TODO: not numerically stable
+    arma::vec const sig_inv_va_mu = sig_inv * va_mu; // TODO: memory allocation
+    half_term -= arma::dot(sig_inv_va_mu, va_mu); // TODO: replace dot?
+    for(int i = 0; i < n_rng; ++i)
+      for(int j = 0; j < n_rng; ++j){ // TODO: exploit symmetry
+        half_term -= sig_inv.at(j, i) * Lam.at(j, i);
+        if(comp_grad){
+          dLam.at(j, i) += .5 * sig_inv.at(j, i);
+          dSig.at(j, i) += .5 * sig_inv.at(j, i);
+        }
+      }
+    
+    out -= .5 * half_term;
+    if(comp_grad){
+      dva_mu += sig_inv_va_mu;
+      
+      {
+        arma::mat lam_inv; 
+        if(!arma::inv_sympd(lam_inv, Lam)) // TODO: memory allocation
+          half_term = std::numeric_limits<double>::quiet_NaN();
+        else
+          dLam -= .5 * lam_inv; 
+      }
+      
+      // modify Lam as we do not need it anymore
+      for(int i = 0; i < n_rng; ++i)
+        for(int j = 0; j < n_rng; ++j)
+          Lam.at(j, i) += va_mu[i] * va_mu[j];
+      dSig -= .5 * (sig_inv * Lam * sig_inv); // TODO: many temporaries
+      
+      // copy the result 
+      {
+        arma::vec dum(dSig.begin(), dSig.n_elem, false);
+        d_get_pd_mat(dum, Sig_L[1], gr + Sig_start);
+      }
+      {
+        arma::vec dum(dLam.begin(), dLam.n_elem, false);
+        d_get_pd_mat(dum, Lam_L[1], gr + Lam_start);
+      }
+    }
+    
+    return out;
+  }
+  
+  double func(double const *point) const {
+    return comp<false>(point, nullptr);
+  }
+  
+  double grad
+  (double const * point, double * gr) const {
+    return comp<true>(point, gr);
+  }
+  
+  bool thread_safe() const {
+    return true;
+  }
+};
+
+// psqn interface 
+using lb_optim = PSQN::optimizer<lower_bound_term, PSQN::R_reporter,
+                                 PSQN::R_interrupter>;
+
+// [[Rcpp::export(rng = false)]]
+SEXP get_lb_optimizer(Rcpp::List data, unsigned const max_threads){
+  size_t const n_elem_funcs = data.size();
+  std::vector<lower_bound_term> funcs;
+  funcs.reserve(n_elem_funcs);
+  for(auto dat : data)
+    funcs.emplace_back(Rcpp::List(dat));
+  
+  // create an XPtr to the object we will need
+  Rcpp::XPtr<lb_optim> ptr(new lb_optim(funcs, max_threads));
+  
+  // return the pointer to be used later
+  return ptr;
+}
+
+// [[Rcpp::export(rng = false)]]
+Rcpp::List opt_lb
+  (Rcpp::NumericVector val, SEXP ptr, double const rel_eps, unsigned const max_it,
+   unsigned const n_threads, double const c1,
+   double const c2, bool const use_bfgs = true, int const trace = 0L,
+   double const cg_tol = .5, bool const strong_wolfe = true,
+   size_t const max_cg = 0L, int const pre_method = 1L){
+  Rcpp::XPtr<lb_optim> optim(ptr);
+  
+  // check that we pass a parameter value of the right length
+  if(optim->n_par != static_cast<size_t>(val.size()))
+    throw std::invalid_argument("optim_lb: invalid parameter size");
+  
+  Rcpp::NumericVector par = clone(val);
+  optim->set_n_threads(n_threads);
+  auto res = optim->optim(&par[0], rel_eps, max_it, c1, c2,
+                          use_bfgs, trace, cg_tol, strong_wolfe, max_cg,
+                          static_cast<PSQN::precondition>(pre_method));
+  Rcpp::NumericVector counts = Rcpp::NumericVector::create(
+    res.n_eval, res.n_grad,  res.n_cg);
+  counts.names() = 
+    Rcpp::CharacterVector::create("function", "gradient", "n_cg");
+  
+  int const info = static_cast<int>(res.info);
+  return Rcpp::List::create(
+    Rcpp::_["par"] = par, Rcpp::_["value"] = res.value, 
+    Rcpp::_["info"] = info, Rcpp::_["counts"] = counts,
+    Rcpp::_["convergence"] =  res.info == PSQN::info_code::converged);
+}
+
+// [[Rcpp::export(rng = false)]]
+double eval_lb(Rcpp::NumericVector val, SEXP ptr, unsigned const n_threads){
+  Rcpp::XPtr<lb_optim> optim(ptr);
+  
+  // check that we pass a parameter value of the right length
+  if(optim->n_par != static_cast<size_t>(val.size()))
+    throw std::invalid_argument("eval_lb: invalid parameter size");
+  
+  optim->set_n_threads(n_threads);
+  return optim->eval(&val[0], nullptr, false);
+}
+
+// [[Rcpp::export(rng = false)]]
+Rcpp::NumericVector eval_lb_gr(Rcpp::NumericVector val, SEXP ptr,
+                               unsigned const n_threads){
+  Rcpp::XPtr<lb_optim> optim(ptr);
+  
+  // check that we pass a parameter value of the right length
+  if(optim->n_par != static_cast<size_t>(val.size()))
+    throw std::invalid_argument("eval_lb_gr: invalid parameter size");
+  
+  Rcpp::NumericVector grad(val.size());
+  optim->set_n_threads(n_threads);
+  grad.attr("value") = optim->eval(&val[0], &grad[0], true);
+  
+  return grad;
+}
+
+// [[Rcpp::export(rng = false)]]
+Rcpp::NumericVector opt_priv
+  (Rcpp::NumericVector val, SEXP ptr, 
+   double const rel_eps, unsigned const max_it, unsigned const n_threads, 
+   double const c1, double const c2){
+  Rcpp::XPtr<lb_optim> optim(ptr);
+
+  // check that we pass a parameter value of the right length
+  if(optim->n_par != static_cast<size_t>(val.size()))
+    throw std::invalid_argument("opt_priv: invalid parameter size");
+  
+  Rcpp::NumericVector par = clone(val);
+  optim->set_n_threads(n_threads);
+  double const res = optim->optim_priv(&par[0], rel_eps, max_it, c1, c2);
+  par.attr("value") = res;
+  return par;
+}
+
+/***R
+# simple function to simulate from a mixed probit model with a random 
+# intercept and a random slope. 
+# 
+# Args: 
+#   sig: scale parameter for the correlation matrix
+#   inter: the intercept
+#   n_cluster: number of clusters
+#   slope: slope of the covariate
+sim_dat <- function(sig, inter, n_cluster = 100L, 
+                    slope = 0){
+  cor_mat <- matrix(c(1, -.25, -.25, 1), 2L) # the correlation matrix
+  vcov_mat <- sig * cor_mat   # the covariance matrix
+  beta <- c(inter, slope) # the fixed effects
+  n_obs <- 10L # number of members in each cluster
+  
+  # simulate the clusters
+  group <- 0L
+  out <- replicate(n_cluster, {
+    # the random effect 
+    u <- drop(rnorm(NCOL(vcov_mat)) %*% chol(vcov_mat))
+    
+    # design matrix
+    x <- runif(n_obs, -sqrt(12) / 2, sqrt(12) / 2)
+    
+    # linear predcitor
+    eta <- drop(cbind(1, x) %*% c(u + beta))
+    
+    # the outcome 
+    prob <- 1/(1 + exp(-eta))
+    nis <- sample.int(5L, n_obs, replace = TRUE)
+    y <- rbinom(n_obs, nis, prob)
+    nis <- as.numeric(nis)
+    y <- as.numeric(y)
+    
+    # return 
+    Z <- rbind(1, x)
+    group <<- group + 1L
+    list(x = x, y = y, group = rep(group, n_obs), 
+         nis = nis, X = Z, Z = Z)
+  }, simplify = FALSE)
+  
+  # create a data.frame with the data set and return 
+  . <- function(what)
+    c(sapply(out, `[[`, what))
+  list(
+    sim_dat = data.frame(y     = .("y"), 
+                         x     = .("x"), 
+                         group = .("group"), 
+                         nis   = .("nis")), 
+    vcov_mat = vcov_mat, beta = beta, 
+    list_dat = out)   
+}
+
+# simulate a small data set
+n_clust <- 2L
+n_rng <- 2L
+n_fix <- 2L
+small_dat <- sim_dat(sig = .5, inter = 0, n_cluster = n_clust,
+                     slope = 0)
+
+func <- get_lb_optimizer(small_dat$list_dat, 1L)
+fn <- function(x)
+  eval_lb   (x, ptr = func, n_threads = 1L)
+gr <- function(x)
+  eval_lb_gr(x, ptr = func, n_threads = 1L)
+
+set.seed(1)
+point <- runif(
+  n_fix + n_clust * n_rng + (n_clust + 1) * n_rng * (n_rng + 1L) / 2,
+  -1, 1)
+
+fn(point)
+library(numDeriv)
+num_aprx <- grad(fn, point, method.args = list(r = 10))
+gr_cpp <- gr(point)
+rbind(num_aprx, gr_cpp, diff = gr_cpp - num_aprx)
+all.equal(num_aprx, gr_cpp, 
+          check.attributes = FALSE)
+
+# compare w/ Laplace approximation. First assign function to estimate the 
+# model
+library(lme4)
+est_Laplace <- function(dat){
+  fit <- glmer(cbind(y, nis - y) ~ x + (1 + x | group), dat$sim_dat,
+               family = binomial())
+  vc <- VarCorr(fit)
+  list(ll = c(logLik(fit)), fixef = fixef(fit), 
+       stdev = attr(vc$group, "stddev"), 
+       cormat = attr(vc$group, "correlation"))
+}
+
+est_va <- function(dat, rel_eps = 1e-8){
+  func <- get_lb_optimizer(dat$list_dat, 1L)
+  fn <- function(x)
+    eval_lb   (x, ptr = func, n_threads = 1L)
+  gr <- function(x)
+    eval_lb_gr(x, ptr = func, n_threads = 1L)
+  
+  # setup stating values
+  n_clust <- length(dat$list_dat)
+  par <- numeric(n_fix + n_clust * n_rng +
+                   (n_clust + 1) * n_rng * (n_rng + 1L) / 2)
+  
+  # estimate the fixed effects w/ a GLM
+  if(n_fix > 0)
+    par[1:n_fix] <- with(dat$sim_dat, glm.fit(
+      x = cbind(1, x), y = y / nis, weights = nis, family = binomial()))[[
+        "coefficients"]]
+
+  # par <- opt_priv(val = par, ptr = func, rel_eps = rel_eps^(2/3),
+  #                 max_it = 100, n_threads = 1L, c1 = 1e-4, c2 = .9)
+  res <- opt_lb(val = par, ptr = func, rel_eps = rel_eps, max_it = 1000L, 
+                n_threads = 1L, c1 = 1e-4, c2 = .9, cg_tol = .2, 
+                max_cg = max(2L, as.integer(log(n_clust) * 10)))
+  
+  mod_par <- head(res$par, n_fix + n_rng * (n_rng + 1) / 2)
+  Sig_hat <- get_pd_mat(tail(mod_par, -n_fix), n_rng)[[1L]]
+  
+  list(lb = -res$value, fixef = head(mod_par, n_fix), 
+       stdev = sqrt(diag(Sig_hat)), cormat = cov2cor(Sig_hat))
+}
+
+# # then simulate and use the functions
+set.seed(1)
+n_clust <- 1000L
+dat <- sim_dat(sig = .6^2, inter = 1, n_cluster = n_clust, slope = -1)
+system.time(print(est_va     (dat)))
+system.time(print(est_Laplace(dat)))
+
+# truth is
+list(fixef  = dat$beta, stdev = diag(sqrt(dat$vcov_mat)), 
+     cormat = cov2cor(dat$vcov_mat))
+
+# double const eta = sigma * x + mu, 
+# p_term = eta > 30 ? eta :  std::log(1 + std::exp(eta));
+# return .5 * x * x - std::log(p_term);
 */
