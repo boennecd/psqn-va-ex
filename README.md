@@ -15,7 +15,8 @@ Then, we can start to run the examples.
 ## Univariate Random Effects
 
 We start with univariate random effects. Here we can compare with the
-adaptive Gauss-Hermite quadrature implementation in `lme4`.
+adaptive Gauss-Hermite quadrature implementation and the Laplace
+implementation in `lme4` package. First we assign the seeds we will use.
 
 ``` r
 # the seeds we will use
@@ -38,15 +39,16 @@ seeds <- c(45093216L, 6708209L, 22871506L, 48729709L, 13815212L, 2445671L,
   69007023L, 23760608L, 24451838L, 91022614L)
 ```
 
-Next we set up functions to perform the simulation study.
+Next we set up the functions we will need to perform the simulation
+study.
 
 ``` r
-# simple function to simulate from a mixed probit model. 
+# simulates from a mixed probit model. 
 # 
 # Args: 
 #   n_cluster: number of clusters
 #   cor_mat: the correlation matrix.
-#   beta: the fixed effect coefficient matrix.
+#   beta: the fixed effect coefficient vector.
 #   sig: scale parameter for the covariance matrix.
 #   n_obs: number of members in each cluster.
 #   get_x: function to get the fixed effect covariate matrix.
@@ -58,14 +60,14 @@ sim_dat <- function(n_cluster = 100L, cor_mat, beta, sig, n_obs = 10L,
   # simulate the clusters
   group <- 0L
   out <- replicate(n_cluster, {
-    # the random effect 
+    # the random effects
     u <- drop(rnorm(NCOL(vcov_mat)) %*% chol(vcov_mat))
     
     # design matrices
     X <- t(get_x(1:n_obs))
     Z <- t(get_z(1:n_obs))
     
-    # linear predcitor
+    # linear predictors
     eta <- drop(beta %*% X +  u %*% Z)
     
     # the outcome 
@@ -213,6 +215,7 @@ sim_res_uni <- lapply(seeds, function(s){
 The bias estimates are given below:
 
 ``` r
+# function to compute the bias and the standard errors.
 comp_bias <- function(results, what){
   errs <- sapply(results, function(x) x$bias[[what]], 
                  simplify = "array")
@@ -272,7 +275,7 @@ time_stats(sim_res_uni)
 ```
 
     ##             mean meadian
-    ## Laplace   0.7122   0.698
-    ## AGHQ      1.8208   1.817
-    ## GVA       0.3500   0.355
-    ## GVA LBFGS 3.7521   3.730
+    ## Laplace   0.7241  0.7100
+    ## AGHQ      1.8479  1.8370
+    ## GVA       0.2470  0.2465
+    ## GVA LBFGS 2.6812  2.6900

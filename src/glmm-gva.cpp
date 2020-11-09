@@ -206,6 +206,32 @@ struct logit {
     }
     
     double operator()() noexcept {
+      if(sigma < 2 or std::abs(mu) < 4){
+        // 4th order polynomail approximation 
+        constexpr std::array<double, 15> const coef = { 0.00269191424089733, -0.0135120139816612, 0.000596313286406067, 0.00132194254552531, -9.65239787158926e-05, 0.693071200579536, -0.109014356271539, -0.0056401414162169, 0.000581436402165448, 0.00692133354547494, -0.0204524311765302, 0.00586824383813473, -0.100822202289977, 0.0160140669127429, 0.0166017681050071 };
+        int ci(0L);
+        double out(coef[ci++]);
+        
+        {
+          double m = 1;
+          for(int i = 0; i < 4; ++i){
+            m *= mu;
+            out += m * coef[ci++];
+          }
+        }
+        double s = 1;
+        for(int i = 0; i < 4; ++i){
+          s *= sigma;
+          double m = 1;
+          for(int j = 0; j < 4 - i; ++j){
+            out += m * s * coef[ci++];
+            m *= mu;
+          }
+        }
+        
+        return std::max(1e-8, out);
+      }
+      
       // we work on the log scale
       constexpr double const eps = 1e-4;
       double ub = std::min(3., sigma), 
@@ -266,7 +292,7 @@ struct logit {
     }
     
     // get the mode and scale to use
-    double const mode = mode_finder(mu, sigma)(), // ~ 1/5 of comp time?
+    double const mode = mode_finder(mu, sigma)(),
                 scale = get_scale(sigma * mode + mu, sigma);
 
     for(int i = 0; i < n_nodes; ++i){
@@ -285,7 +311,6 @@ struct logit {
     return use_many ? 
       B_inner<ghq::nodes_many, ghq::ws_many, ghq::n_ghq_many>(mu, sigma) : 
       B_inner<ghq::nodes_few , ghq::ws_few , ghq::n_ghq_few >(mu, sigma);
-    
   }
   
   /// evaluates the derivatives of the expected partition function 
@@ -308,7 +333,7 @@ struct logit {
     }
     
     // get the mode and scale to use
-    double const mode = mode_finder(mu, sigma)(),
+    double const mode = mode_finder(mu, sigma)(), 
                 scale = get_scale(sigma * mode + mu, sigma);
     
     for(int i = 0; i < n_nodes; ++i){
@@ -955,7 +980,7 @@ fn(point)
 library(numDeriv)
 num_aprx <- grad(fn, point, method.args = list(r = 10))
 gr_cpp <- gr(point)
-rbind(num_aprx, gr_cpp, diff = gr_cpp - num_aprx)
+cbind(num_aprx, gr_cpp, diff = gr_cpp - num_aprx)
 all.equal(num_aprx, gr_cpp, 
           check.attributes = FALSE)
 
