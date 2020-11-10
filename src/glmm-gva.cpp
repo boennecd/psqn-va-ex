@@ -679,7 +679,8 @@ public:
   double const norm_constant;
   
 private:
-  static int mem_per_thread;
+  static int mem_per_thread,
+             n_mem_alloc;
   static std::unique_ptr<double[]> wk_mem;
   static inline double * get_thread_mem() noexcept {
 #ifdef _OPENMP
@@ -729,9 +730,12 @@ public:
     n_ele = (n_ele + mult - 1L) / mult;
     n_ele *= mult;
     
-    if(mem_per_thread < n_ele){
-      mem_per_thread = n_ele;
-      wk_mem.reset(new double[n_ele * max_threads]);
+    mem_per_thread = n_ele;
+    n_ele *= max_threads;
+    
+    if(n_mem_alloc < n_ele){
+      n_mem_alloc = n_ele;
+      wk_mem.reset(new double[n_ele]);
     }
   }
   
@@ -899,7 +903,8 @@ public:
   }
 };
 
-int lower_bound_term::mem_per_thread = 0L;
+int lower_bound_term::mem_per_thread = 0L, 
+    lower_bound_term::n_mem_alloc    = 0L;
 std::unique_ptr<double[]> lower_bound_term::wk_mem = 
   std::unique_ptr<double[]>();
 
