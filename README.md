@@ -233,7 +233,7 @@ comp_bias(sim_res_uni, "fixed")
     ## Laplace     0.0057265 0.004543 -0.005410
     ## AGHQ        0.0002187 0.003648 -0.004550
     ## GVA         0.0057922 0.004485 -0.005392
-    ## GVA LBFGS   0.0057042 0.004474 -0.005367
+    ## GVA LBFGS   0.0057044 0.004474 -0.005367
     ## 
     ## $`Standard error`
     ##           (Intercept)     X.V2  X.dummy
@@ -275,7 +275,7 @@ time_stats(sim_res_uni)
 ```
 
     ##             mean meadian
-    ## Laplace   0.7119  0.6950
-    ## AGHQ      1.8258  1.8220
-    ## GVA       0.2416  0.2445
-    ## GVA LBFGS 2.6478  2.6075
+    ## Laplace   0.7145  0.7020
+    ## AGHQ      1.8299  1.8320
+    ## GVA       0.2442  0.2475
+    ## GVA LBFGS 2.6581  2.6610
