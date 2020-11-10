@@ -1,5 +1,6 @@
 // [[Rcpp::plugins(openmp, cpp11)]]
 // [[Rcpp::depends(RcppArmadillo, psqn)]]
+#define ARMA_NO_DEBUG
 #include <RcppArmadillo.h>
 #include "psqn.h"
 #include "psqn-reporter.h"
@@ -207,7 +208,7 @@ struct logit {
     
     double operator()() noexcept {
       if(sigma < 2 or std::abs(mu) < 4){
-        // 4th order polynomail approximation 
+        // 4th order polynomial approximation 
         constexpr std::array<double, 15> const coef = { 0.00269191424089733, -0.0135120139816612, 0.000596313286406067, 0.00132194254552531, -9.65239787158926e-05, 0.693071200579536, -0.109014356271539, -0.0056401414162169, 0.000581436402165448, 0.00692133354547494, -0.0204524311765302, 0.00586824383813473, -0.100822202289977, 0.0160140669127429, 0.0166017681050071 };
         int ci(0L);
         double out(coef[ci++]);
@@ -480,16 +481,17 @@ inline arma::vec vec_no_cp(double const * x, size_t const n_ele){
 
 /** Computes LL^T where L is a lower triangular matrix. The argument is a
     a vector with the non-zero elements in column major order. The diagonal 
-    entries are on the log scale. The methods returns both L and LL^T.  */
-std::array<arma::mat, 2L> get_pd_mat(double const *theta, int dim){
-  arma::mat L(dim, dim, arma::fill::zeros); // TODO: memory allocation
+    entries are on the log scale. The method computes both L and LL^T.  */
+void get_pd_mat(double const *theta, arma::mat &L, arma::mat &res){
+  int const dim = L.n_rows;
+  L.zeros();
   for(int j = 0; j < dim; ++j){
     L.at(j, j) = std::exp(*theta++);
     for(int i = j + 1; i < dim; ++i)
       L.at(i, j) = *theta++;
   }
   
-  return { L * L.t(), std::move(L) }; // TODO: memory allocation
+  res = L * L.t();
 }
 
 arma::uvec get_commutation_unequal_vec
@@ -571,13 +573,13 @@ inline void x_dot_X_kron_I
     result and has the same dimension as the pointer passed to 
     get_pd_mat. */
 void d_get_pd_mat(arma::vec const &gr, arma::mat const &L, 
-                  double * res){
-  arma::vec gr_term = gr; // TODO: memory allocation 
-  int const n = L.n_cols;
-  arma::uvec const &com_vec = get_commutation_unequal_vec_cached(n);
-  gr_term += gr(com_vec);
+                  double * __restrict__ res, double * const work_mem){
+  arma::vec gr_term(work_mem, gr.size(), false);
+  std::copy(gr.begin(), gr.end(), gr_term.begin());
+  gr_term += gr(get_commutation_unequal_vec_cached(L.n_cols));
   
-  arma::mat jac(n, n); // TODO: memory allocation 
+  int const n = L.n_cols;
+  arma::mat jac(gr_term.end(), n, n, false);
   x_dot_X_kron_I(gr_term, L, n, jac.begin());
 
   // copy the lower triangel and scale the diagonal entries  
@@ -592,16 +594,19 @@ void d_get_pd_mat(arma::vec const &gr, arma::mat const &L,
 // functions to check the above
 // [[Rcpp::export(rng = false)]]
 Rcpp::List get_pd_mat(Rcpp::NumericVector theta, int const dim){
-  auto res = get_pd_mat(&theta[0], dim);
-  return Rcpp::List::create(Rcpp::Named("X") = res[0], 
-                            Rcpp::Named("L") = res[1]);
+  arma::mat L(dim, dim), 
+          res(dim, dim);
+  get_pd_mat(&theta[0], L, res);
+  return Rcpp::List::create(Rcpp::Named("X") = res, 
+                            Rcpp::Named("L") = L);
 }
 
 // [[Rcpp::export(rng = false)]]
 Rcpp::NumericVector d_get_pd_mat(arma::vec const &gr, arma::mat const &L){
   int const n = L.n_cols;
   Rcpp::NumericVector out((n * (n + 1)) / 2);
-  d_get_pd_mat(gr, L, &out[0]);
+  std::unique_ptr<double[]> wk_mem(new double[gr.n_elem + L.n_elem]);
+  d_get_pd_mat(gr, L, &out[0], wk_mem.get());
   return out;
 }
 
@@ -624,22 +629,55 @@ L <- get_pd_mat(theta, n)[[2L]]
 all.equal(gr_truth, d_get_pd_mat(gr, L))
 
 # should not be a bottleneck?
-# bench::mark(
-#     get_pd_mat = get_pd_mat(theta, n), 
-#   d_get_pd_mat = d_get_pd_mat(cos(c(X)), L),
-#   check = FALSE, min_time = 1, max_iterations = 1e6)
+bench::mark(
+    get_pd_mat = get_pd_mat(theta, n),
+  d_get_pd_mat = d_get_pd_mat(cos(c(X)), L),
+  check = FALSE, min_time = .5, max_iterations = 1e6)
 */
+
+inline double vec_dot(arma::vec const &x, double const *y) noexcept {
+  double out(0.);
+  for(arma::uword i = 0; i < x.n_elem; ++i)
+    out += x.at(i) * *y++;
+  return out;
+}
+
+inline double quad_form(arma::mat const &X, double const *x) noexcept {
+  arma::uword const n = X.n_rows;
+  double out(0.);
+  for(arma::uword j = 0; j < n; ++j){
+    out += X.at(j, j) * x[j] * x[j];
+    for(arma::uword i = j + 1; i < n; ++i)
+      out += 2 * X.at(i, j) * x[j] * x[i];
+  }
+  
+  return out;
+}
 
 class lower_bound_term {
   arma::vec const y, nis;
   arma::mat const X, Z;
   
+public:
   int const n_beta = X.n_rows, 
              n_rng = Z.n_rows,
              n_sig = (n_rng * (n_rng + 1L)) / 2L,
              n_obs = y.n_elem;
   
   double const norm_constant;
+  
+private:
+  static int mem_per_thread;
+  static std::unique_ptr<double[]> wk_mem;
+  static inline double * get_thread_mem() noexcept {
+#ifdef _OPENMP
+    int const thread_num(omp_get_thread_num());
+#else
+    int const thread_num(0L));
+#endif
+    
+    return wk_mem.get() + thread_num * mem_per_thread;
+  }
   
 public:
   lower_bound_term(arma::vec const &y, arma::vec const &nis, 
@@ -669,6 +707,22 @@ public:
                    Rcpp::as<arma::mat>(dat["X"]),
                    Rcpp::as<arma::mat>(dat["Z"])) { }
   
+  static void set_wk_mem(int const max_n_beta, int const max_n_rng, 
+                         int const max_n_obs, int const max_threads){
+    constexpr int const mult = cacheline_size() / sizeof(double),
+                    min_size = 2L * mult;
+    
+    int n_ele = std::max(
+      static_cast<int>(10L * max_n_rng * max_n_rng), min_size);
+    n_ele = (n_ele + mult - 1L) / mult;
+    n_ele *= mult;
+    
+    if(mem_per_thread < n_ele){
+      mem_per_thread = n_ele;
+      wk_mem.reset(new double[n_ele * max_threads]);
+    }
+  }
+  
   size_t global_dim() const {
     return n_beta + n_sig;
   }
@@ -686,32 +740,42 @@ public:
     arma::vec const beta = vec_no_cp(p + beta_start , n_beta), 
                    va_mu = vec_no_cp(p + va_mu_start, n_rng); 
     
-    auto const Sig_L = get_pd_mat(p + Sig_start, n_rng);
-    auto       Lam_L = get_pd_mat(p + Lam_start, n_rng);
-    arma::mat const &Sig = Sig_L[0];
-    arma::mat       &Lam = Lam_L[0];
+    double * w = get_thread_mem();
+    auto get_wk_mem = [&](int const n_ele){
+      double * out = w;
+      w += n_ele;
+      return out;
+    };
+    
+    int const n_rng_sq = n_rng * n_rng;
+    arma::mat Sig_L(get_wk_mem(n_rng_sq), n_rng, n_rng, false), 
+              Sig  (get_wk_mem(n_rng_sq), n_rng, n_rng, false), 
+              Lam_L(get_wk_mem(n_rng_sq), n_rng, n_rng, false), 
+              Lam  (get_wk_mem(n_rng_sq), n_rng, n_rng, false);
+    get_pd_mat(p + Sig_start, Sig_L, Sig);
+    get_pd_mat(p + Lam_start, Lam_L, Lam);
     
     // objects for partial derivatives
     arma::vec dbeta(gr + beta_start , comp_grad ? n_beta : 0, false), 
              dva_mu(gr + va_mu_start, comp_grad ? n_rng  : 0, false);
-    arma::mat dSig, dLam;
+    arma::mat dSig(get_wk_mem(n_rng_sq), n_rng, n_rng, false), 
+              dLam(get_wk_mem(n_rng_sq), n_rng, n_rng, false);
     if(comp_grad){
       dbeta.zeros();
       dva_mu.zeros();
       
-      dSig.zeros(n_rng, n_rng); // TODO: memory allocation
-      dLam.zeros(n_rng, n_rng); // TODO: memory allocation
+      dSig.zeros(); 
+      dLam.zeros(); 
     }
     
     // evaluate the lower bound. Start with the terms from the conditional 
     // density of the outcomes
     double out(norm_constant);
     for(int i = 0; i < n_obs; ++i){
-      // TODO: replace arma::dot
       double const eta = 
-        arma::dot(X.col(i), beta) + arma::dot(Z.col(i), va_mu), 
+        vec_dot(beta, X.colptr(i)) + vec_dot(va_mu, Z.colptr(i)), 
               cond_sd  = std::sqrt(std::abs(
-                arma::dot(Z.col(i), Lam * Z.col(i)))); // TODO: expensive quad form
+                quad_form(Lam, Z.colptr(i))));
       double const B = partition::logit<true>::B(eta, cond_sd);
       out += -y[i] * eta + nis[i] * B;
       
@@ -740,9 +804,9 @@ public:
               unused;
     
     // determinant terms
-    arma::mat sig_inv;
-    if(!arma::inv_sympd(sig_inv, Sig)){  // TODO: memory allocation
-      sig_inv.zeros(n_rng, n_rng);
+    arma::mat sig_inv(get_wk_mem(n_rng_sq), n_rng, n_rng, false);
+    if(!arma::inv_sympd(sig_inv, Sig)){
+      sig_inv.zeros();
       half_term = std::numeric_limits<double>::quiet_NaN();
     }
     
@@ -753,42 +817,56 @@ public:
     
     // TODO: not numerically stable
     arma::vec const sig_inv_va_mu = sig_inv * va_mu; // TODO: memory allocation
-    half_term -= arma::dot(sig_inv_va_mu, va_mu); // TODO: replace dot?
-    for(int i = 0; i < n_rng; ++i)
-      for(int j = 0; j < n_rng; ++j){ // TODO: exploit symmetry
-        half_term -= sig_inv.at(j, i) * Lam.at(j, i);
+    half_term -= vec_dot(sig_inv_va_mu, va_mu.begin());
+    for(int i = 0; i < n_rng; ++i){
+      for(int j = 0; j < i; ++j){ 
+        half_term -= 2 * sig_inv.at(j, i) * Lam.at(j, i);
         if(comp_grad){
-          dLam.at(j, i) += .5 * sig_inv.at(j, i);
-          dSig.at(j, i) += .5 * sig_inv.at(j, i);
+          double const d_term = .5 * sig_inv.at(j, i);
+          dLam.at(j, i) += d_term;
+          dLam.at(i, j) += d_term;
+          dSig.at(j, i) += d_term;
+          dSig.at(i, j) += d_term;
         }
       }
+      half_term -= sig_inv.at(i, i) * Lam.at(i, i);
+      if(comp_grad){
+        dLam.at(i, i) += .5 * sig_inv.at(i, i);
+        dSig.at(i, i) += .5 * sig_inv.at(i, i);
+      }
+    }
     
     out -= .5 * half_term;
     if(comp_grad){
       dva_mu += sig_inv_va_mu;
       
       {
-        arma::mat lam_inv; 
-        if(!arma::inv_sympd(lam_inv, Lam)) // TODO: memory allocation
+        arma::mat lam_inv(
+            get_wk_mem(n_rng_sq), n_rng, n_rng, false); 
+        if(!arma::inv_sympd(lam_inv, Lam))
           half_term = std::numeric_limits<double>::quiet_NaN();
         else
           dLam -= .5 * lam_inv; 
       }
       
       // modify Lam as we do not need it anymore
+      double * const d_pd_mem = // last working memory we can use
+        get_wk_mem(2 * n_rng_sq);
       for(int i = 0; i < n_rng; ++i)
         for(int j = 0; j < n_rng; ++j)
           Lam.at(j, i) += va_mu[i] * va_mu[j];
-      dSig -= .5 * (sig_inv * Lam * sig_inv); // TODO: many temporaries
+      arma::mat tmp(d_pd_mem, n_rng, n_rng, false);
+      tmp = .5 * (sig_inv * Lam * sig_inv); // TODO: many temporaries ?
+      dSig -= tmp; 
       
       // copy the result 
       {
         arma::vec dum(dSig.begin(), dSig.n_elem, false);
-        d_get_pd_mat(dum, Sig_L[1], gr + Sig_start);
+        d_get_pd_mat(dum, Sig_L, gr + Sig_start, d_pd_mem);
       }
       {
         arma::vec dum(dLam.begin(), dLam.n_elem, false);
-        d_get_pd_mat(dum, Lam_L[1], gr + Lam_start);
+        d_get_pd_mat(dum, Lam_L, gr + Lam_start, d_pd_mem);
       }
     }
     
@@ -809,6 +887,10 @@ public:
   }
 };
 
+int lower_bound_term::mem_per_thread = 0L;
+std::unique_ptr<double[]> lower_bound_term::wk_mem = 
+  std::unique_ptr<double[]>();
+
 // psqn interface 
 using lb_optim = PSQN::optimizer<lower_bound_term, PSQN::R_reporter,
                                  PSQN::R_interrupter>;
@@ -818,8 +900,19 @@ SEXP get_lb_optimizer(Rcpp::List data, unsigned const max_threads){
   size_t const n_elem_funcs = data.size();
   std::vector<lower_bound_term> funcs;
   funcs.reserve(n_elem_funcs);
-  for(auto dat : data)
+  
+  int max_n_beta(0L), 
+      max_n_rng (0L), 
+      max_n_obs(0L);
+  for(auto dat : data){
     funcs.emplace_back(Rcpp::List(dat));
+    lower_bound_term const &obj = funcs.back();
+    max_n_beta = std::max(max_n_beta, obj.n_beta);
+    max_n_rng  = std::max(max_n_rng , obj.n_rng);
+    max_n_obs = std::max(max_n_obs, obj.n_obs);
+  }
+  lower_bound_term::set_wk_mem(
+    max_n_beta, max_n_rng, max_n_obs, max_threads);
   
   // create an XPtr to the object we will need
   Rcpp::XPtr<lb_optim> ptr(new lb_optim(funcs, max_threads));
