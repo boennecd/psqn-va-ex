@@ -191,21 +191,34 @@ get_z <- function(x)
 # Args: 
 #   n_cluster: number of clusters.
 #   seeds_use: seeds to use in the simulations.
-run_uni_study <- function(n_cluster, seeds_use)
+#   n_obs: number of members in each cluster.
+#   sig: scale parameter for the covariance matrix.
+#   cor_mat: the correlation matrix.
+#   beta: the fixed effect coefficient vector.
+#   prefix: prefix for saved files.
+#   formula: formula for lme4. 
+run_study <- function(n_cluster, seeds_use, n_obs = 3L, sig = 1.5, 
+                      cor_mat = diag(1), beta = c(-2, -1, 1), 
+                      prefix = "univariate", 
+                      formula = y / nis ~ X.V2 + X.dummy + (1 | group))
   lapply(seeds_use, function(s){
-    f <- file.path("cache", sprintf("univariate-%d-%d.RDS", n_cluster, s))
+    f <- file.path("cache", sprintf("%s-%d-%d.RDS", prefix, n_cluster, s))
     if(!file.exists(f)){
       set.seed(s)
       dat <- sim_dat(
-        n_cluster = n_cluster, cor_mat = diag(1), beta = c(-2, -1, 1), 
-        sig = 1.5, n_obs = 3L, get_x = get_x, get_z = get_z)
+        n_cluster = n_cluster, cor_mat = cor_mat, beta = beta, 
+        sig = sig, n_obs = n_obs, get_x = get_x, get_z = get_z)
       
       lap_time <- system.time(lap_fit <- est_lme4(
-        formula = y / nis ~ X.V2 + X.dummy + (1 | group), 
+        formula = formula, 
         dat = dat$df_dat, nAGQ = 1L))
-      agh_time <- system.time(agh_fit <- est_lme4(
-        formula = y / nis ~ X.V2 + X.dummy + (1 | group), 
-        dat = dat$df_dat, nAGQ = 25L))
+      if(NCOL(cor_mat) > 1){
+        agh_time <- NULL
+        agh_fit <- NULL
+      } else 
+        agh_time <- system.time(agh_fit <- est_lme4(
+          formula = formula, 
+          dat = dat$df_dat, nAGQ = 25L))
       gva_time <- system.time(
         gva_fit <- est_va(dat, est_psqn = TRUE, n_threads = 1L))
       gva_time_four <- system.time(
@@ -213,22 +226,35 @@ run_uni_study <- function(n_cluster, seeds_use)
       gva_lbfgs_time <- system.time(
         gva_lbfgs_fit <- est_va(dat, est_psqn = FALSE, n_threads = 1L))
       
-      get_bias <- function(x)
-        list(fixed = x$fixef - dat$beta, 
-             stdev = x$stdev - dat$stdev,
-             cor_mat = (x$cor_mat - dat$cor_mat)[lower.tri(dat$cor_mat)])
+      get_bias <- function(x){
+        if(is.null(x))
+          list(fixed = NULL, 
+               stdev = NULL, 
+               cor_mat = NULL)
+        else
+          list(fixed = x$fixef - dat$beta, 
+               stdev = x$stdev - dat$stdev,
+               cor_mat = (x$cor_mat - dat$cor_mat)[lower.tri(dat$cor_mat)])
+      }
       
-      bias <- mapply(rbind, Laplace = get_bias(lap_fit), 
-                     AGHQ = get_bias(agh_fit), GVA = get_bias(gva_fit), 
-                     `GVA (4 threads)` = get_bias(gva_fit_four),
-                     `GVA LBFGS` = get_bias(gva_lbfgs_fit))
+      bias <- mapply(
+        rbind, 
+        Laplace = get_bias(lap_fit), 
+        AGHQ = get_bias(agh_fit), GVA = get_bias(gva_fit), 
+        `GVA (4 threads)` = get_bias(gva_fit_four),
+        `GVA LBFGS` = get_bias(gva_lbfgs_fit), 
+        SIMPLIFY = FALSE)
       tis <- rbind(Laplace = lap_time, AGHQ = agh_time, GVA = gva_time, 
                    `GVA (4 threads)` = gva_time_four,
                    `GVA LBFGS` = gva_lbfgs_time)[, 1:3]
       
+      . <- function(x)
+        if(is.null(x)) NULL else x$ll
       out <- list(bias = bias, time = tis, 
-                  lls = c(Laplace = lap_fit$ll, AGHQ = agh_fit$ll, 
-                          GVA = gva_fit$lb, `GVA LBFGS` = gva_lbfgs_fit$lb), 
+                  lls = c(Laplace = .(lap_fit), AGHQ = .(agh_fit), 
+                          GVA = gva_fit$lb, 
+                          `GVA (4 threads)` = gva_fit_four$lb, 
+                          `GVA LBFGS` = gva_lbfgs_fit$lb), 
                   seed = s)
       
       message(paste0(capture.output(out), collapse = "\n"))
@@ -240,7 +266,7 @@ run_uni_study <- function(n_cluster, seeds_use)
   })
 
 # use the function to perform the simulation study
-sim_res_uni <- run_uni_study(1000L, head(seeds, 50L))
+sim_res_uni <- run_study(1000L, head(seeds, 50L))
 ```
 
 The bias estimates are given below:
@@ -282,7 +308,7 @@ time_stats(sim_res_uni)
 We re-run the simulation study below with more clusters.
 
 ```{r large_sim_uni, message=FALSE}
-sim_res_uni_large <- run_uni_study(5000L, head(seeds, 25L))
+sim_res_uni_large <- run_study(5000L, head(seeds, 25L))
 ```
 
 Here are the results:
@@ -298,6 +324,33 @@ comp_bias(sim_res_uni_large, "stdev")
 time_stats(sim_res_uni_large)
 ```
 
+## 3D Random Effects
 
+We run a simulation study in this section with three random effects per 
+cluster. We use the same function as before to perform the simulation study.
 
+```{r mult_rng, message=FALSE}
+get_z <- get_x # random effect covariates are the same as the fixed
 
+cor_mat <- matrix(c(1, -.25, .25, -.25, 1, 0, .25, 0, 1), 3L)
+sim_res_mult <- run_study(
+  n_cluster = 1000L, seeds_use = head(seeds, 25L), sig = .8, n_obs = 10L, 
+  cor_mat = cor_mat, prefix = "multivariate", 
+  formula = y / nis ~ X.V2 + X.dummy + (1 + X.V2 + X.dummy | group))
+```
+
+We show the bias and summary statistics for the computation time below.
+
+```{r mult_res}
+# bias of the fixed effect 
+comp_bias(sim_res_mult, "fixed")
+
+# bias of the random effect standard deviations
+comp_bias(sim_res_mult, "stdev")
+
+# bias of the correlation coefficients for the random effects
+comp_bias(sim_res_mult, "cor_mat")
+
+# computation time summary statistics 
+time_stats(sim_res_mult)
+```
