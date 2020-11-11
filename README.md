@@ -1,4 +1,18 @@
 
+# Example of Using the psqn Package for GVAs for GLMMs
+
+We use the [psqn](https://github.com/boennecd/psqn) package to estimate
+Gaussian variational approximations (GVAs) for generalized linear mixed
+models (GLMMs) for clustered data in this repository. All the formulas
+for the lower bound is shown by Ormerod and Wand (2012). The C++
+implementation is at [src/glmm-gva.cpp](src/glmm-gva.cpp). While this is
+a small example, it should be stressed that:
+
+  - The psqn package is particularly useful for variational
+    approximations for clustered data. This is not just limited to GVAs.
+  - The code for the GLMMs shown here is easy to extend to other types
+    of outcomes and link functions.
+
 First, we source the files:
 
 ``` r
@@ -48,7 +62,7 @@ study.
 # 
 # Args: 
 #   n_cluster: number of clusters
-#   cor_mat: the correlation matrix.
+#   cor_mat: the correlation/scale matrix for the random effects.
 #   beta: the fixed effect coefficient vector.
 #   sig: scale parameter for the covariance matrix.
 #   n_obs: number of members in each cluster.
@@ -56,7 +70,7 @@ study.
 #   get_z: function to get the random effect covariate matrix.
 sim_dat <- function(n_cluster = 100L, cor_mat, beta, sig, n_obs = 10L, 
                     get_x, get_z){
-  vcov_mat <- sig * cor_mat   # the covariance matrix
+  vcov_mat <- sig * cor_mat # the covariance matrix
   
   # simulate the clusters
   group <- 0L
@@ -131,7 +145,7 @@ est_va <- function(dat, rel_eps = 1e-8, est_psqn, n_threads = 1L){
   par <- numeric(n_fix + n_clust * n_rng +
                    (n_clust + 1) * n_rng * (n_rng + 1L) / 2)
   
-  # estimate the fixed effects w/ a GLM
+  # estimate starting values for the fixed effects w/ a GLM
   if(n_fix > 0)
     par[1:n_fix] <- with(dat$df_dat, glm.fit(
       x = dat$df_dat[, grepl("^X", colnames(dat$df_dat))], 
@@ -139,12 +153,15 @@ est_va <- function(dat, rel_eps = 1e-8, est_psqn, n_threads = 1L){
         "coefficients"]]
   
   if(est_psqn){
+    # use the psqn package
     # par <- opt_priv(val = par, ptr = func, rel_eps = rel_eps^(2/3),
     #                 max_it = 100, n_threads = n_threads, c1 = 1e-4, c2 = .9)
     res <- opt_lb(val = par, ptr = func, rel_eps = rel_eps, max_it = 1000L, 
                   n_threads = n_threads, c1 = 1e-4, c2 = .9, cg_tol = .2, 
                   max_cg = max(2L, as.integer(log(n_clust) * 10)))
+    
   } else {
+    # use a Limited-memory BFGS implementation 
     library(lbfgs)
     fn <- function(x)
       eval_lb   (x, ptr = func, n_threads = n_threads)
@@ -188,11 +205,13 @@ run_study <- function(n_cluster, seeds_use, n_obs = 3L, sig = 1.5,
   lapply(seeds_use, function(s){
     f <- file.path("cache", sprintf("%s-%d-%d.RDS", prefix, n_cluster, s))
     if(!file.exists(f)){
+      # simulate the data set
       set.seed(s)
       dat <- sim_dat(
         n_cluster = n_cluster, cor_mat = cor_mat, beta = beta, 
         sig = sig, n_obs = n_obs, get_x = get_x, get_z = get_z)
       
+      # fit the model
       lap_time <- system.time(lap_fit <- est_lme4(
         formula = formula, 
         dat = dat$df_dat, nAGQ = 1L))
@@ -210,6 +229,8 @@ run_study <- function(n_cluster, seeds_use, n_obs = 3L, sig = 1.5,
       gva_lbfgs_time <- system.time(
         gva_lbfgs_fit <- est_va(dat, est_psqn = FALSE, n_threads = 1L))
       
+      # extract the bias, the computation time, and and the lower bound
+      # or log likelihood and return
       get_bias <- function(x){
         if(is.null(x))
           list(fixed = NULL, 
@@ -228,6 +249,7 @@ run_study <- function(n_cluster, seeds_use, n_obs = 3L, sig = 1.5,
         `GVA (4 threads)` = get_bias(gva_fit_four),
         `GVA LBFGS` = get_bias(gva_lbfgs_fit), 
         SIMPLIFY = FALSE)
+      
       tis <- rbind(Laplace = lap_time, AGHQ = agh_time, GVA = gva_time, 
                    `GVA (4 threads)` = gva_time_four,
                    `GVA LBFGS` = gva_lbfgs_time)[, 1:3]
@@ -250,7 +272,7 @@ run_study <- function(n_cluster, seeds_use, n_obs = 3L, sig = 1.5,
   })
 
 # use the function to perform the simulation study
-sim_res_uni <- run_study(1000L, head(seeds, 50L))
+sim_res_uni <- run_study(1000L, seeds)
 ```
 
 The bias estimates are given below:
@@ -270,20 +292,20 @@ comp_bias(sim_res_uni, "fixed")
 ```
 
     ## $bias
-    ##                 (Intercept)     X.V2      X.dummy
-    ## Laplace            0.003512 0.004608 0.0000009445
-    ## AGHQ              -0.002032 0.003709 0.0008954528
-    ## GVA                0.003639 0.004569 0.0000506112
-    ## GVA (4 threads)    0.003639 0.004569 0.0000506112
-    ## GVA LBFGS          0.003522 0.004553 0.0000656710
+    ##                 (Intercept)     X.V2   X.dummy
+    ## Laplace           0.0057265 0.004543 -0.005410
+    ## AGHQ              0.0002187 0.003648 -0.004550
+    ## GVA               0.0057922 0.004485 -0.005392
+    ## GVA (4 threads)   0.0057922 0.004485 -0.005392
+    ## GVA LBFGS         0.0057044 0.004474 -0.005367
     ## 
     ## $`Standard error`
-    ##                 (Intercept)     X.V2 X.dummy
-    ## Laplace            0.008845 0.005723 0.01006
-    ## AGHQ               0.008906 0.005745 0.01011
-    ## GVA                0.008869 0.005739 0.01011
-    ## GVA (4 threads)    0.008869 0.005739 0.01011
-    ## GVA LBFGS          0.008865 0.005739 0.01011
+    ##                 (Intercept)     X.V2  X.dummy
+    ## Laplace            0.006462 0.003665 0.006755
+    ## AGHQ               0.006512 0.003675 0.006788
+    ## GVA                0.006479 0.003672 0.006789
+    ## GVA (4 threads)    0.006479 0.003672 0.006789
+    ## GVA LBFGS          0.006478 0.003672 0.006787
 
 ``` r
 # the random effect standard deviation
@@ -292,19 +314,19 @@ comp_bias(sim_res_uni, "stdev")
 
     ## $bias
     ##                 (Intercept)
-    ## Laplace          -0.0306789
-    ## AGHQ              0.0008701
-    ## GVA              -0.0136716
-    ## GVA (4 threads)  -0.0136716
-    ## GVA LBFGS        -0.0136605
+    ## Laplace           -0.039098
+    ## AGHQ              -0.007815
+    ## GVA               -0.022147
+    ## GVA (4 threads)   -0.022147
+    ## GVA LBFGS         -0.022143
     ## 
     ## $`Standard error`
     ##                 (Intercept)
-    ## Laplace            0.007376
-    ## AGHQ               0.007576
-    ## GVA                0.007366
-    ## GVA (4 threads)    0.007366
-    ## GVA LBFGS          0.007371
+    ## Laplace            0.005343
+    ## AGHQ               0.005502
+    ## GVA                0.005343
+    ## GVA (4 threads)    0.005343
+    ## GVA LBFGS          0.005347
 
 Summary stats for the computation time are given below:
 
@@ -321,19 +343,19 @@ time_stats <- function(results){
 time_stats(sim_res_uni)
 ```
 
-    ##                   mean meadian
-    ## Laplace         0.7134  0.7015
-    ## AGHQ            1.8376  1.8465
-    ## GVA             0.2444  0.2480
-    ## GVA (4 threads) 0.0702  0.0700
-    ## GVA LBFGS       2.6392  2.6565
+    ##                    mean meadian
+    ## Laplace         0.71254  0.6965
+    ## AGHQ            1.82421  1.8175
+    ## GVA             0.24389  0.2470
+    ## GVA (4 threads) 0.06988  0.0700
+    ## GVA LBFGS       2.65223  2.6630
 
 ### Larger Sample
 
 We re-run the simulation study below with more clusters.
 
 ``` r
-sim_res_uni_large <- run_study(5000L, head(seeds, 25L))
+sim_res_uni_large <- run_study(5000L, seeds)
 ```
 
 Here are the results:
@@ -344,20 +366,20 @@ comp_bias(sim_res_uni_large, "fixed")
 ```
 
     ## $bias
-    ##                 (Intercept)      X.V2  X.dummy
-    ## Laplace           -0.001139 0.0016353 0.007122
-    ## AGHQ              -0.006677 0.0007691 0.008039
-    ## GVA               -0.001196 0.0015981 0.007179
-    ## GVA (4 threads)   -0.001196 0.0015981 0.007179
-    ## GVA LBFGS         -0.001208 0.0016021 0.007207
+    ##                 (Intercept)     X.V2  X.dummy
+    ## Laplace            0.002266 0.001883 0.001770
+    ## AGHQ              -0.003233 0.001022 0.002619
+    ## GVA                0.002258 0.001853 0.001757
+    ## GVA (4 threads)    0.002258 0.001853 0.001757
+    ## GVA LBFGS          0.002247 0.001852 0.001808
     ## 
     ## $`Standard error`
     ##                 (Intercept)     X.V2  X.dummy
-    ## Laplace            0.005500 0.002336 0.005548
-    ## AGHQ               0.005540 0.002351 0.005580
-    ## GVA                0.005537 0.002346 0.005575
-    ## GVA (4 threads)    0.005537 0.002346 0.005575
-    ## GVA LBFGS          0.005533 0.002346 0.005576
+    ## Laplace            0.003335 0.001520 0.003239
+    ## AGHQ               0.003358 0.001526 0.003254
+    ## GVA                0.003345 0.001523 0.003254
+    ## GVA (4 threads)    0.003345 0.001523 0.003254
+    ## GVA LBFGS          0.003344 0.001524 0.003253
 
 ``` r
 # bias of the random effect standard deviation
@@ -366,19 +388,19 @@ comp_bias(sim_res_uni_large, "stdev")
 
     ## $bias
     ##                 (Intercept)
-    ## Laplace           -0.032896
-    ## AGHQ              -0.001648
-    ## GVA               -0.015900
-    ## GVA (4 threads)   -0.015900
-    ## GVA LBFGS         -0.015931
+    ## Laplace           -0.033339
+    ## AGHQ              -0.002072
+    ## GVA               -0.016379
+    ## GVA (4 threads)   -0.016379
+    ## GVA LBFGS         -0.016391
     ## 
     ## $`Standard error`
     ##                 (Intercept)
-    ## Laplace            0.004022
-    ## AGHQ               0.004123
-    ## GVA                0.004019
-    ## GVA (4 threads)    0.004019
-    ## GVA LBFGS          0.004019
+    ## Laplace            0.002298
+    ## AGHQ               0.002361
+    ## GVA                0.002298
+    ## GVA (4 threads)    0.002298
+    ## GVA LBFGS          0.002299
 
 ``` r
 # computation time summary statistics 
@@ -386,11 +408,11 @@ time_stats(sim_res_uni_large)
 ```
 
     ##                    mean meadian
-    ## Laplace          3.7802   3.688
-    ## AGHQ            10.2311  10.195
-    ## GVA              1.2088   1.245
-    ## GVA (4 threads)  0.3454   0.348
-    ## GVA LBFGS       21.6801  21.778
+    ## Laplace          3.7057  3.6905
+    ## AGHQ            10.2137 10.0910
+    ## GVA              1.2076  1.2400
+    ## GVA (4 threads)  0.3431  0.3505
+    ## GVA LBFGS       22.1251 21.7065
 
 ## 3D Random Effects
 
@@ -403,7 +425,7 @@ get_z <- get_x # random effect covariates are the same as the fixed
 
 cor_mat <- matrix(c(1, -.25, .25, -.25, 1, 0, .25, 0, 1), 3L)
 sim_res_mult <- run_study(
-  n_cluster = 1000L, seeds_use = head(seeds, 25L), sig = .8, n_obs = 10L, 
+  n_cluster = 1000L, seeds_use = seeds, sig = .8, n_obs = 10L, 
   cor_mat = cor_mat, prefix = "multivariate", 
   formula = y / nis ~ X.V2 + X.dummy + (1 + X.V2 + X.dummy | group))
 ```
@@ -417,17 +439,17 @@ comp_bias(sim_res_mult, "fixed")
 
     ## $bias
     ##                 (Intercept)     X.V2  X.dummy
-    ## Laplace          -0.0041454 0.006197 0.006535
-    ## GVA              -0.0008889 0.008169 0.006562
-    ## GVA (4 threads)  -0.0008673 0.008149 0.006562
-    ## GVA LBFGS        -0.0007860 0.008116 0.006515
+    ## Laplace           -0.004653 0.002890 0.005104
+    ## GVA               -0.001763 0.004677 0.005041
+    ## GVA (4 threads)   -0.001763 0.004675 0.005039
+    ## GVA LBFGS         -0.001672 0.004651 0.004986
     ## 
     ## $`Standard error`
     ##                 (Intercept)     X.V2  X.dummy
-    ## Laplace            0.005419 0.009394 0.009364
-    ## GVA                0.005310 0.009346 0.009271
-    ## GVA (4 threads)    0.005309 0.009345 0.009268
-    ## GVA LBFGS          0.005308 0.009342 0.009271
+    ## Laplace            0.003548 0.003934 0.004448
+    ## GVA                0.003496 0.003903 0.004427
+    ## GVA (4 threads)    0.003496 0.003902 0.004427
+    ## GVA LBFGS          0.003495 0.003902 0.004427
 
 ``` r
 # bias of the random effect standard deviations
@@ -435,18 +457,18 @@ comp_bias(sim_res_mult, "stdev")
 ```
 
     ## $bias
-    ##                 (Intercept)      X.V2  X.dummy
-    ## Laplace            -0.02500 -0.010439 -0.04684
-    ## GVA                -0.01727 -0.008278 -0.03111
-    ## GVA (4 threads)    -0.01727 -0.008285 -0.03115
-    ## GVA LBFGS          -0.01747 -0.008328 -0.03187
+    ##                 (Intercept)     X.V2  X.dummy
+    ## Laplace           -0.012345 -0.01621 -0.03574
+    ## GVA               -0.004226 -0.01394 -0.01895
+    ## GVA (4 threads)   -0.004225 -0.01394 -0.01897
+    ## GVA LBFGS         -0.004438 -0.01397 -0.01964
     ## 
     ## $`Standard error`
     ##                 (Intercept)     X.V2  X.dummy
-    ## Laplace            0.007645 0.006789 0.010466
-    ## GVA                0.007703 0.006712 0.009802
-    ## GVA (4 threads)    0.007702 0.006710 0.009804
-    ## GVA LBFGS          0.007699 0.006706 0.009802
+    ## Laplace            0.003920 0.003252 0.005576
+    ## GVA                0.003938 0.003206 0.005414
+    ## GVA (4 threads)    0.003939 0.003205 0.005414
+    ## GVA LBFGS          0.003940 0.003204 0.005419
 
 ``` r
 # bias of the correlation coefficients for the random effects
@@ -454,18 +476,18 @@ comp_bias(sim_res_mult, "cor_mat")
 ```
 
     ## $bias
-    ##                     [,1]    [,2]     [,3]
-    ## Laplace         -0.01557 0.04157 0.009041
-    ## GVA             -0.02073 0.02109 0.013663
-    ## GVA (4 threads) -0.02069 0.02117 0.013664
-    ## GVA LBFGS       -0.02055 0.02249 0.013688
+    ##                      [,1]      [,2]     [,3]
+    ## Laplace         -0.001484 0.0221071 0.003486
+    ## GVA             -0.006263 0.0009599 0.008747
+    ## GVA (4 threads) -0.006250 0.0009806 0.008750
+    ## GVA LBFGS       -0.006094 0.0022286 0.008735
     ## 
     ## $`Standard error`
-    ##                    [,1]    [,2]    [,3]
-    ## Laplace         0.01214 0.01785 0.01370
-    ## GVA             0.01202 0.01705 0.01308
-    ## GVA (4 threads) 0.01202 0.01707 0.01308
-    ## GVA LBFGS       0.01202 0.01706 0.01310
+    ##                     [,1]     [,2]     [,3]
+    ## Laplace         0.005590 0.008912 0.007491
+    ## GVA             0.005537 0.008623 0.007227
+    ## GVA (4 threads) 0.005536 0.008626 0.007226
+    ## GVA LBFGS       0.005535 0.008642 0.007238
 
 ``` r
 # computation time summary statistics 
@@ -473,7 +495,22 @@ time_stats(sim_res_mult)
 ```
 
     ##                    mean meadian
-    ## Laplace         28.2827  24.429
-    ## GVA              2.0758   2.046
-    ## GVA (4 threads)  0.5876   0.581
-    ## GVA LBFGS       27.5192  26.395
+    ## Laplace         31.2781 27.2055
+    ## GVA              1.9744  1.9315
+    ## GVA (4 threads)  0.5546  0.5485
+    ## GVA LBFGS       26.1547 26.0100
+
+## References
+
+<div id="refs" class="references">
+
+<div id="ref-Ormerod11">
+
+Ormerod, J. T., and M. P. Wand. 2012. “Gaussian Variational Approximate
+Inference for Generalized Linear Mixed Models.” *Journal of
+Computational and Graphical Statistics* 21 (1). Taylor & Francis: 2–17.
+<https://doi.org/10.1198/jcgs.2011.09118>.
+
+</div>
+
+</div>
