@@ -4,7 +4,7 @@
 We use the [psqn](https://github.com/boennecd/psqn) package to estimate
 Gaussian variational approximations (GVAs) for generalized linear mixed
 models (GLMMs) for clustered data in this repository. All the formulas
-for the lower bound is shown by Ormerod and Wand (2012). The C++
+for the lower bound are shown by Ormerod and Wand (2012). The C++
 implementation is at [src/glmm-gva.cpp](src/glmm-gva.cpp). While this is
 a small example, it should be stressed that:
 
@@ -495,10 +495,10 @@ time_stats(sim_res_mult)
 ```
 
     ##                    mean meadian
-    ## Laplace         31.2781 27.2055
-    ## GVA              1.9744  1.9315
-    ## GVA (4 threads)  0.5546  0.5485
-    ## GVA LBFGS       26.1547 26.0100
+    ## Laplace         32.2355 27.5800
+    ## GVA              2.0129  1.9875
+    ## GVA (4 threads)  0.5746  0.5675
+    ## GVA LBFGS       26.8143 26.7345
 
 ## References
 

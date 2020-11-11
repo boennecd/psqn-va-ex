@@ -239,7 +239,6 @@ struct logit {
         return std::max(1e-8, out);
       }
       
-      // we work on the log scale
       constexpr double const eps = 1e-4;
       double ub = std::min(3., sigma), 
              lb = eps; // optimum has a lower bounded of zero 
@@ -509,8 +508,8 @@ void get_pd_mat(double const *theta, arma::mat &L, arma::mat &res){
 arma::uvec get_commutation_unequal_vec
   (unsigned const n, unsigned const m, bool const transpose){
   unsigned const nm = n * m,
-            nnm_p1 = n * nm + 1L,
-             nm_pm = nm + m;
+             nnm_p1 = n * nm + 1L,
+              nm_pm = nm + m;
   arma::uvec out(nm);
   arma::uword * const o_begin = out.begin();
   size_t idx = 0L;
@@ -667,7 +666,9 @@ inline double quad_form(arma::mat const &X, double const *x) noexcept {
 }
 
 class lower_bound_term {
+  // outcomes and size variables
   arma::vec const y, nis;
+  // design matrices
   arma::mat const X, Z;
   
 public:
@@ -676,9 +677,11 @@ public:
              n_sig = (n_rng * (n_rng + 1L)) / 2L,
              n_obs = y.n_elem;
   
+  // normalization constant
   double const norm_constant;
   
 private:
+  // members and functions handle working memory
   static int mem_per_thread,
              n_mem_alloc;
   static std::unique_ptr<double[]> wk_mem;
@@ -720,6 +723,7 @@ public:
                    Rcpp::as<arma::mat>(dat["X"]),
                    Rcpp::as<arma::mat>(dat["Z"])) { }
   
+  /// sets the working memory.
   static void set_wk_mem(int const max_n_beta, int const max_n_rng, 
                          int const max_n_obs, int const max_threads){
     constexpr int const mult = cacheline_size() / sizeof(double),
@@ -739,6 +743,7 @@ public:
     }
   }
   
+  // the rest is the member functions which are needed for the psqn package.
   size_t global_dim() const {
     return n_beta + n_sig;
   }
@@ -756,6 +761,7 @@ public:
     arma::vec const beta = vec_no_cp(p + beta_start , n_beta), 
                    va_mu = vec_no_cp(p + va_mu_start, n_rng); 
     
+    // the working memory and function to get working memory.
     double * w = get_thread_mem();
     auto get_wk_mem = [&](int const n_ele){
       double * out = w;
@@ -814,7 +820,7 @@ public:
     }
     
     // terms from the log of the ratio of the unconditional random effect 
-    // density and the variational density
+    // density and the variational distribution density
     double half_term(0.), 
                deter, 
               unused;
@@ -1087,6 +1093,7 @@ fn <- function(x)
 gr <- function(x)
   eval_lb_gr(x, ptr = func, n_threads = 1L)
 
+# check the gradient
 set.seed(1)
 point <- runif(
   n_fix + n_clust * n_rng + (n_clust + 1) * n_rng * (n_rng + 1L) / 2,
@@ -1100,7 +1107,7 @@ cbind(num_aprx, gr_cpp, diff = gr_cpp - num_aprx)
 all.equal(num_aprx, gr_cpp, 
           check.attributes = FALSE)
 
-# compare w/ Laplace approximation. First assign function to estimate the 
+# compare w/ Laplace approximation. First assign functions to estimate the 
 # model
 library(lme4)
 est_Laplace <- function(dat){
@@ -1143,7 +1150,7 @@ est_va <- function(dat, rel_eps = 1e-8){
        stdev = sqrt(diag(Sig_hat)), cormat = cov2cor(Sig_hat))
 }
 
-# # then simulate and use the functions
+# then simulate and use the functions
 set.seed(1)
 n_clust <- 1000L
 dat <- sim_dat(sig = .6^2, inter = 1, n_cluster = n_clust, slope = -1)
@@ -1153,8 +1160,4 @@ system.time(print(est_Laplace(dat)))
 # truth is
 list(fixef  = dat$beta, stdev = diag(sqrt(dat$vcov_mat)), 
      cormat = cov2cor(dat$vcov_mat))
-
-# double const eta = sigma * x + mu, 
-# p_term = eta > 30 ? eta :  std::log(1 + std::exp(eta));
-# return .5 * x * x - std::log(p_term);
 */

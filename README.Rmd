@@ -197,7 +197,7 @@ est_va <- function(dat, rel_eps = 1e-8, est_psqn, n_threads = 1L){
 
 Then we perform the simulation study.
 
-```{r uni_sim, message = FALSE}
+```{r uni_sim, message = FALSE, warning=FALSE}
 # assign covariate functions
 get_x <- function(x)
   cbind(`(Intercept)` = 1, `cont` = scale(x), `dummy` = x %% 2)
@@ -326,11 +326,19 @@ time_stats <- function(results){
 time_stats(sim_res_uni)
 ```
 
+```{r save_small_uni, echo = FALSE}
+to_save <- list(
+  fixef = comp_bias(sim_res_uni, "fixed"),
+  stdev = comp_bias(sim_res_uni, "stdev"),
+  time  = time_stats(sim_res_uni))
+saveRDS(to_save, "small-uni-res.RDS")
+```
+
 ### Larger Sample
 
 We re-run the simulation study below with more clusters.
 
-```{r large_sim_uni, message=FALSE}
+```{r large_sim_uni, message=FALSE, warning=FALSE}
 sim_res_uni_large <- run_study(5000L, seeds)
 ```
 
@@ -347,12 +355,20 @@ comp_bias(sim_res_uni_large, "stdev")
 time_stats(sim_res_uni_large)
 ```
 
+```{r save_large_uni, echo = FALSE}
+to_save <- list(
+  fixef = comp_bias(sim_res_uni_large, "fixed"),
+  stdev = comp_bias(sim_res_uni_large, "stdev"),
+  time  = time_stats(sim_res_uni_large))
+saveRDS(to_save, "large-uni-res.RDS")
+```
+
 ## 3D Random Effects
 
 We run a simulation study in this section with three random effects per 
 cluster. We use the same function as before to perform the simulation study.
 
-```{r mult_rng, message=FALSE}
+```{r mult_rng, message=FALSE, warning=FALSE}
 get_z <- get_x # random effect covariates are the same as the fixed
 
 cor_mat <- matrix(c(1, -.25, .25, -.25, 1, 0, .25, 0, 1), 3L)
@@ -376,6 +392,15 @@ comp_bias(sim_res_mult, "cor_mat")
 
 # computation time summary statistics 
 time_stats(sim_res_mult)
+```
+
+```{r save_mult, echo = FALSE}
+to_save <- list(
+  fixef = comp_bias(sim_res_mult, "fixed"),
+  stdev = comp_bias(sim_res_mult, "stdev"),
+  cor_mat = comp_bias(sim_res_mult, "cor_mat"),
+  time  = time_stats(sim_res_mult))
+saveRDS(to_save, "3D-res.RDS")
 ```
 
 ## References
