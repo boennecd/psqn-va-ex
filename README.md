@@ -30,7 +30,7 @@ Then, we can start to run the examples.
 
 We start with univariate random effects. Here we can compare with the
 adaptive Gauss-Hermite quadrature implementation and the Laplace
-implementation in the `lme4` package. First we assign the seeds we will
+implementation in the `lme4` package. First, we assign the seeds we will
 use.
 
 ``` r
@@ -54,11 +54,11 @@ seeds <- c(45093216L, 6708209L, 22871506L, 48729709L, 13815212L, 2445671L,
   69007023L, 23760608L, 24451838L, 91022614L)
 ```
 
-Next we set up the functions we will need to perform the simulation
+Next we assign the functions we will need to perform the simulation
 study.
 
 ``` r
-# simulates from a mixed probit model. 
+# simulates from a mixed logit model. 
 # 
 # Args: 
 #   n_cluster: number of clusters
