@@ -371,6 +371,19 @@ struct logit {
                ghq::n_ghq_few >(mu, sigma);
   }
 };
+
+/** expected partition functions for the log link with Poisson data. */
+struct poisson {
+  static inline double B(double const mu, double const sigma) noexcept {
+    return std::exp(mu + sigma * sigma * .5);
+  }
+  
+  static inline std::array<double, 2L> Bp
+  (double const mu, double const sigma) noexcept {
+    double const d_mu = std::exp(mu + sigma * sigma * .5);
+    return { d_mu, sigma * d_mu };
+  }
+};
 } // namespace partition
 
 // [[Rcpp::export(rng = false)]]
@@ -648,8 +661,9 @@ bench::mark(
 
 inline double vec_dot(arma::vec const &x, double const *y) noexcept {
   double out(0.);
+  double const *xi = x.begin();
   for(arma::uword i = 0; i < x.n_elem; ++i)
-    out += x.at(i) * *y++;
+    out += *xi++ * *y++;
   return out;
 }
 
@@ -657,13 +671,38 @@ inline double quad_form(arma::mat const &X, double const *x) noexcept {
   arma::uword const n = X.n_rows;
   double out(0.);
   for(arma::uword j = 0; j < n; ++j){
-    out += X.at(j, j) * x[j] * x[j];
+    double const *Xij = X.colptr(j) + j, 
+                 *xi  = x + j + 1;
+    out += *Xij++ * x[j] * x[j];
     for(arma::uword i = j + 1; i < n; ++i)
-      out += 2 * X.at(i, j) * x[j] * x[i];
+      out += 2 * *Xij++ * x[j] * *xi++;
   }
   
   return out;
 }
+  
+// needs to be forward declared due for lower_bound_caller 
+class lower_bound_term;
+
+/**
+ * Class used to compute the unconditional random effect covariance matrix
+ * it Cholesky decomposition, and its inverse once. 
+ */  
+struct lower_bound_caller {
+  /**
+   * the first element is the number of fixed effects and the second
+   * element is the number of random effects.
+   */
+  std::array<int, 2> dims;
+  arma::mat Sig, Sig_L, Sig_inv;
+  double Sig_det;
+  
+  lower_bound_caller(std::vector<lower_bound_term const*>&);
+  void setup(double const *val, bool const comp_grad);
+  double eval_func(lower_bound_term const &obj, double const * val);
+  double eval_grad(lower_bound_term const &obj, double const * val, 
+                   double *gr);
+};
 
 class lower_bound_term {
   // outcomes and size variables
@@ -730,7 +769,7 @@ public:
                     min_size = 2L * mult;
     
     int n_ele = std::max(
-      static_cast<int>(10L * max_n_rng * max_n_rng), min_size);
+      static_cast<int>(7L * max_n_rng * max_n_rng), min_size);
     n_ele = (n_ele + mult - 1L) / mult;
     n_ele *= mult;
     
@@ -752,7 +791,8 @@ public:
   }
   
   template<bool comp_grad>
-  double comp(double const *p, double *gr) const {
+  double comp(double const *p, double *gr, 
+              lower_bound_caller const &caller) const {
     // setup the objects we need
     int const beta_start = 0, 
                Sig_start = beta_start + n_beta, 
@@ -770,12 +810,12 @@ public:
     };
     
     int const n_rng_sq = n_rng * n_rng;
-    arma::mat Sig_L(get_wk_mem(n_rng_sq), n_rng, n_rng, false), 
-              Sig  (get_wk_mem(n_rng_sq), n_rng, n_rng, false), 
-              Lam_L(get_wk_mem(n_rng_sq), n_rng, n_rng, false), 
+    arma::mat Lam_L(get_wk_mem(n_rng_sq), n_rng, n_rng, false), 
               Lam  (get_wk_mem(n_rng_sq), n_rng, n_rng, false);
-    get_pd_mat(p + Sig_start, Sig_L, Sig);
     get_pd_mat(p + Lam_start, Lam_L, Lam);
+    
+    arma::mat const &Sig_L = caller.Sig_L, 
+                  &Sig_inv = caller.Sig_inv;
     
     // objects for partial derivatives
     arma::vec dbeta(gr + beta_start , comp_grad ? n_beta : 0, false), 
@@ -796,7 +836,7 @@ public:
     for(int i = 0; i < n_obs; ++i){
       double const eta = 
         vec_dot(beta, X.colptr(i)) + vec_dot(va_mu, Z.colptr(i)), 
-              cond_sd  = std::sqrt(std::abs(
+               cond_sd = std::sqrt(std::abs(
                 quad_form(Lam, Z.colptr(i))));
       double const B = partition::logit<true>::B(eta, cond_sd);
       out += -y[i] * eta + nis[i] * B;
@@ -826,35 +866,28 @@ public:
               unused;
     
     // determinant terms
-    arma::mat sig_inv(get_wk_mem(n_rng_sq), n_rng, n_rng, false);
-    if(!arma::inv_sympd(sig_inv, Sig)){
-      sig_inv.zeros();
-      half_term = std::numeric_limits<double>::quiet_NaN();
-    }
-    
-    arma::log_det(deter, unused, Sig);
-    half_term -= deter;
+    half_term -= caller.Sig_det;
     arma::log_det(deter, unused, Lam);
     half_term += deter;
     
     // TODO: not numerically stable
-    arma::vec const sig_inv_va_mu = sig_inv * va_mu; // TODO: memory allocation
+    arma::vec const sig_inv_va_mu = Sig_inv * va_mu; // TODO: memory allocation
     half_term -= vec_dot(sig_inv_va_mu, va_mu.begin());
     for(int i = 0; i < n_rng; ++i){
       for(int j = 0; j < i; ++j){ 
-        half_term -= 2 * sig_inv.at(j, i) * Lam.at(j, i);
+        half_term -= 2 * Sig_inv.at(j, i) * Lam.at(j, i);
         if(comp_grad){
-          double const d_term = .5 * sig_inv.at(j, i);
+          double const d_term = .5 * Sig_inv.at(j, i);
           dLam.at(j, i) += d_term;
           dLam.at(i, j) += d_term;
           dSig.at(j, i) += d_term;
           dSig.at(i, j) += d_term;
         }
       }
-      half_term -= sig_inv.at(i, i) * Lam.at(i, i);
+      half_term -= Sig_inv.at(i, i) * Lam.at(i, i);
       if(comp_grad){
-        dLam.at(i, i) += .5 * sig_inv.at(i, i);
-        dSig.at(i, i) += .5 * sig_inv.at(i, i);
+        dLam.at(i, i) += .5 * Sig_inv.at(i, i);
+        dSig.at(i, i) += .5 * Sig_inv.at(i, i);
       }
     }
     
@@ -878,15 +911,17 @@ public:
         for(int j = 0; j < n_rng; ++j)
           Lam.at(j, i) += va_mu[i] * va_mu[j];
       arma::mat tmp(d_pd_mem, n_rng, n_rng, false);
-      tmp = .5 * (sig_inv * Lam * sig_inv); // TODO: many temporaries ?
+      tmp = .5 * (Sig_inv * Lam * Sig_inv); // TODO: many temporaries ?
       dSig -= tmp; 
       
       // copy the result 
       {
+        // TODO: avoid the dummy
         arma::vec dum(dSig.begin(), dSig.n_elem, false);
         d_get_pd_mat(dum, Sig_L, gr + Sig_start, d_pd_mem);
       }
       {
+        // TODO: avoid the dummy
         arma::vec dum(dLam.begin(), dLam.n_elem, false);
         d_get_pd_mat(dum, Lam_L, gr + Lam_start, d_pd_mem);
       }
@@ -895,13 +930,14 @@ public:
     return out;
   }
   
-  double func(double const *point) const {
-    return comp<false>(point, nullptr);
+  double func(double const *point, lower_bound_caller const &caller) const {
+    return comp<false>(point, nullptr, caller);
   }
   
   double grad
-  (double const * point, double * gr) const {
-    return comp<true>(point, gr);
+  (double const * point, double * gr, 
+   lower_bound_caller const &caller) const {
+    return comp<true>(point, gr, caller);
   }
   
   bool thread_safe() const {
@@ -914,9 +950,61 @@ int lower_bound_term::mem_per_thread = 0L,
 std::unique_ptr<double[]> lower_bound_term::wk_mem = 
   std::unique_ptr<double[]>();
 
+// definitions of lower_bound_caller's member functions
+lower_bound_caller::lower_bound_caller
+  (std::vector<lower_bound_term const*>& funcs):
+  dims(([&](){
+    // get the dimension of the random effects
+    if(funcs.size() < 1 or !funcs[0])
+      throw std::invalid_argument(
+          "lower_bound_caller::lower_bound_caller: invalid funcs");
+    int const n_rng = funcs[0]->n_rng, 
+             n_beta = funcs[0]->n_beta;
+             
+    // checks 
+    for(auto &f: funcs)
+      // check that n_rng is identical for each func
+      if(!f or f->n_rng != n_rng or f->n_beta != n_beta)
+        throw std::invalid_argument(
+            "lower_bound_caller::lower_bound_caller: n_rng or n_beta do not match");
+    
+    
+    return std::array<int, 2L>({ n_beta, n_rng });
+  })()), 
+  Sig(dims[1], dims[1]), Sig_L(dims[1], dims[1]), 
+  Sig_inv(dims[1], dims[1]), 
+  Sig_det(std::numeric_limits<double>::quiet_NaN()) { }
+
+void lower_bound_caller::setup(double const *val, bool const comp_grad){
+  // compute Sigma and setup the cholesky decomposition 
+  get_pd_mat(val + dims[0], Sig_L, Sig);
+  
+  if(!arma::inv_sympd(Sig_inv, Sig)){
+    // inversion failed
+    Sig_inv.zeros(dims[1], dims[1]);
+    Sig_det = std::numeric_limits<double>::quiet_NaN();
+    return;
+  }
+  
+  // compute the determinant
+  double unused;
+  arma::log_det(Sig_det, unused, Sig);
+}
+
+double lower_bound_caller::eval_func
+  (lower_bound_term const &obj, double const * val){
+  return obj.func(val, *this);
+}
+
+double lower_bound_caller::eval_grad(
+    lower_bound_term const &obj, double const * val, double *gr){
+  return obj.grad(val, gr, *this);
+}
+
 // psqn interface 
-using lb_optim = PSQN::optimizer<lower_bound_term, PSQN::R_reporter,
-                                 PSQN::R_interrupter>;
+using lb_optim = PSQN::optimizer
+  <lower_bound_term, PSQN::R_reporter, PSQN::R_interrupter, 
+   lower_bound_caller>;
 
 // [[Rcpp::export(rng = false)]]
 SEXP get_lb_optimizer(Rcpp::List data, unsigned const max_threads){
@@ -932,7 +1020,7 @@ SEXP get_lb_optimizer(Rcpp::List data, unsigned const max_threads){
     lower_bound_term const &obj = funcs.back();
     max_n_beta = std::max(max_n_beta, obj.n_beta);
     max_n_rng  = std::max(max_n_rng , obj.n_rng);
-    max_n_obs = std::max(max_n_obs, obj.n_obs);
+    max_n_obs  = std::max(max_n_obs , obj.n_obs);
   }
   lower_bound_term::set_wk_mem(
     max_n_beta, max_n_rng, max_n_obs, max_threads);

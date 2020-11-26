@@ -344,11 +344,11 @@ time_stats(sim_res_uni)
 ```
 
     ##                    mean meadian
-    ## Laplace         0.71254  0.6965
-    ## AGHQ            1.82421  1.8175
-    ## GVA             0.24389  0.2470
-    ## GVA (4 threads) 0.06988  0.0700
-    ## GVA LBFGS       2.65223  2.6630
+    ## Laplace         0.72262  0.7105
+    ## AGHQ            1.85795  1.8550
+    ## GVA             0.23835  0.2400
+    ## GVA (4 threads) 0.06858  0.0680
+    ## GVA LBFGS       2.61117  2.6125
 
 ### Larger Sample
 
@@ -408,11 +408,11 @@ time_stats(sim_res_uni_large)
 ```
 
     ##                    mean meadian
-    ## Laplace          3.7057  3.6905
-    ## AGHQ            10.2137 10.0910
-    ## GVA              1.2076  1.2400
-    ## GVA (4 threads)  0.3431  0.3505
-    ## GVA LBFGS       22.1251 21.7065
+    ## Laplace          3.7858   3.742
+    ## AGHQ            10.4463  10.285
+    ## GVA              1.2292   1.247
+    ## GVA (4 threads)  0.3387   0.340
+    ## GVA LBFGS       21.7458  21.183
 
 ## 3D Random Effects
 
@@ -440,15 +440,15 @@ comp_bias(sim_res_mult, "fixed")
     ## $bias
     ##                 (Intercept)     X.V2  X.dummy
     ## Laplace           -0.004653 0.002890 0.005104
-    ## GVA               -0.001763 0.004677 0.005041
-    ## GVA (4 threads)   -0.001763 0.004675 0.005039
+    ## GVA               -0.001765 0.004677 0.005043
+    ## GVA (4 threads)   -0.001758 0.004678 0.005036
     ## GVA LBFGS         -0.001672 0.004651 0.004986
     ## 
     ## $`Standard error`
     ##                 (Intercept)     X.V2  X.dummy
     ## Laplace            0.003548 0.003934 0.004448
     ## GVA                0.003496 0.003903 0.004427
-    ## GVA (4 threads)    0.003496 0.003902 0.004427
+    ## GVA (4 threads)    0.003497 0.003903 0.004427
     ## GVA LBFGS          0.003495 0.003902 0.004427
 
 ``` r
@@ -459,15 +459,15 @@ comp_bias(sim_res_mult, "stdev")
     ## $bias
     ##                 (Intercept)     X.V2  X.dummy
     ## Laplace           -0.012345 -0.01621 -0.03574
-    ## GVA               -0.004226 -0.01394 -0.01895
-    ## GVA (4 threads)   -0.004225 -0.01394 -0.01897
+    ## GVA               -0.004227 -0.01394 -0.01896
+    ## GVA (4 threads)   -0.004232 -0.01394 -0.01898
     ## GVA LBFGS         -0.004438 -0.01397 -0.01964
     ## 
     ## $`Standard error`
     ##                 (Intercept)     X.V2  X.dummy
     ## Laplace            0.003920 0.003252 0.005576
     ## GVA                0.003938 0.003206 0.005414
-    ## GVA (4 threads)    0.003939 0.003205 0.005414
+    ## GVA (4 threads)    0.003938 0.003206 0.005413
     ## GVA LBFGS          0.003940 0.003204 0.005419
 
 ``` r
@@ -478,15 +478,15 @@ comp_bias(sim_res_mult, "cor_mat")
     ## $bias
     ##                      [,1]      [,2]     [,3]
     ## Laplace         -0.001484 0.0221071 0.003486
-    ## GVA             -0.006263 0.0009599 0.008747
-    ## GVA (4 threads) -0.006250 0.0009806 0.008750
+    ## GVA             -0.006265 0.0009839 0.008746
+    ## GVA (4 threads) -0.006249 0.0009956 0.008754
     ## GVA LBFGS       -0.006094 0.0022286 0.008735
     ## 
     ## $`Standard error`
     ##                     [,1]     [,2]     [,3]
     ## Laplace         0.005590 0.008912 0.007491
-    ## GVA             0.005537 0.008623 0.007227
-    ## GVA (4 threads) 0.005536 0.008626 0.007226
+    ## GVA             0.005537 0.008628 0.007226
+    ## GVA (4 threads) 0.005536 0.008623 0.007226
     ## GVA LBFGS       0.005535 0.008642 0.007238
 
 ``` r
@@ -495,10 +495,10 @@ time_stats(sim_res_mult)
 ```
 
     ##                    mean meadian
-    ## Laplace         32.2355 27.5800
-    ## GVA              2.0129  1.9875
-    ## GVA (4 threads)  0.5746  0.5675
-    ## GVA LBFGS       26.8143 26.7345
+    ## Laplace         31.2420 27.2020
+    ## GVA              2.0458  2.0115
+    ## GVA (4 threads)  0.5621  0.5545
+    ## GVA LBFGS       25.2775 25.1475
 
 ## References
 
