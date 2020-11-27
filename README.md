@@ -500,6 +500,885 @@ time_stats(sim_res_mult)
     ## GVA (4 threads)  0.5621  0.5545
     ## GVA LBFGS       25.2775 25.1475
 
+## 6D Random Effects
+
+``` r
+# setup for the simulation study
+cor_mat <- diag(6)
+
+get_z <- get_x <- function(x){
+  n <- length(x)
+  out <- cbind(1, matrix(rnorm(n * 5), n))
+  colnames(out) <- c("(Intercept)", paste0("X", 1:5))
+  out
+}
+
+# run the study
+sim_res_mult <- run_study(
+  n_cluster = 1000L, seeds_use = seeds, sig = 1/sqrt(6), n_obs = 10L, 
+  cor_mat = cor_mat, prefix = "6D", beta = c(-2, rep(1/sqrt(5), 5)),
+  formula = y / nis ~ X.X1 + X.X2 + X.X3 + X.X4 + X.X5 + 
+    (1 + X.X1 + X.X2 + X.X3 + X.X4 + X.X5 | group))
+```
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 1.11917 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.403593 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.244667 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.615997 (tol = 0.002, component 1)
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.268658 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.520449 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.489672 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.936085 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.429047 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.599627 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.597032 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.441159 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.793819 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.351694 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.203206 (tol = 0.002, component 1)
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.108061 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.848822 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.430678 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.32253 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.487217 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.491331 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.316202 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.892281 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.928681 (tol = 0.002, component 1)
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.721182 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.697925 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.573866 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.524123 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.935555 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.591886 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.336188 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.456633 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 1.04374 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.162241 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.632334 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.417076 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.197951 (tol = 0.002, component 1)
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.250364 (tol = 0.002, component 1)
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.318815 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 1.18981 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.401236 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.904388 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.624994 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.710379 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.535863 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.767539 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.972829 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 1.12141 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.119073 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.385398 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.204715 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.514755 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.505794 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.379443 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.539374 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.344434 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.199823 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.644256 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.495767 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.549978 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.586229 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.350693 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.514165 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.230803 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.137193 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.215522 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.106476 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.466046 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.430049 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.662706 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.577233 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.718141 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.624899 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.476686 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.592227 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 1.08799 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.983095 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.640393 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 1.56757 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.564316 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.189069 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.139609 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.661417 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.654903 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.382112 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.607303 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.547043 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.17863 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.670202 (tol = 0.002, component 1)
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.118862 (tol = 0.002, component 1)
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.813247 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.574972 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.185956 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.362816 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.268974 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.959904 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.397682 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.88108 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.234537 (tol = 0.002, component 1)
+
+    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
+    ## failure to converge in 10000 evaluations
+
+    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
+    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
+
+    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
+    ## Model failed to converge with max|grad| = 0.540429 (tol = 0.002, component 1)
+
 ## References
 
 <div id="refs" class="references">

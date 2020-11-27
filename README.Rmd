@@ -403,4 +403,48 @@ to_save <- list(
 saveRDS(to_save, "3D-res.RDS")
 ```
 
+## 6D Random Effects
+
+```{r 6D study, message = FALSE, warning=FALSE}
+# setup for the simulation study
+cor_mat <- diag(6)
+
+get_z <- get_x <- function(x){
+  n <- length(x)
+  out <- cbind(1, matrix(rnorm(n * 5), n))
+  colnames(out) <- c("(Intercept)", paste0("X", 1:5))
+  out
+}
+
+# run the study
+sim_res_6D <- run_study(
+  n_cluster = 1000L, seeds_use = seeds, sig = 1/sqrt(6), n_obs = 10L, 
+  cor_mat = cor_mat, prefix = "6D", beta = c(-2, rep(1/sqrt(5), 5)),
+  formula = y / nis ~ X.X1 + X.X2 + X.X3 + X.X4 + X.X5 + 
+    (1 + X.X1 + X.X2 + X.X3 + X.X4 + X.X5 | group))
+```
+
+```{r 6D_res}
+# bias of the fixed effect 
+comp_bias(sim_res_6D, "fixed")
+
+# bias of the random effect standard deviations
+comp_bias(sim_res_6D, "stdev")
+
+# bias of the correlation coefficients for the random effects
+comp_bias(sim_res_6D, "cor_mat")
+
+# computation time summary statistics 
+time_stats(sim_res_6D)
+```
+
+```{r 6D_save_mult, echo = FALSE}
+to_save <- list(
+  fixef = comp_bias(sim_res_6D, "fixed"),
+  stdev = comp_bias(sim_res_6D, "stdev"),
+  cor_mat = comp_bias(sim_res_6D, "cor_mat"),
+  time  = time_stats(sim_res_6D))
+saveRDS(to_save, "6D-res.RDS")
+```
+
 ## References
