@@ -13,7 +13,7 @@ a small example, it should be stressed that:
   - The code for the GLMMs shown here is easy to extend to other types
     of outcomes and link functions.
 
-First, we source the files:
+First, we source the C++ file:
 
 ``` r
 # File to source the C++ file with the GVA method.
@@ -55,7 +55,7 @@ seeds <- c(45093216L, 6708209L, 22871506L, 48729709L, 13815212L, 2445671L,
 ```
 
 Next we assign the functions we will need to perform the simulation
-study.
+study (feel free to skip this).
 
 ``` r
 # simulates from a GLMM.
@@ -312,8 +312,8 @@ sim_res_uni <- run_study(1000L, seeds)
 
 The bias estimates are given below. There are three GVA rows: the `GVA`
 row is using the psqn package with one thread, the `GVA (4 threads)` row
-is using the the psqn package with four threads, and the `GVA LBFGS` row
-is using a limited-memory BFGS implementation.
+is using the psqn package with four threads, and the `GVA LBFGS` row is
+using a limited-memory BFGS implementation.
 
 ``` r
 # function to compute the bias estimates and the standard errors.
