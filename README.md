@@ -29,7 +29,7 @@ Then, we can start to run the examples.
 ## Univariate Random Effects
 
 We start with univariate random effects. Here we can compare with the
-adaptive Gauss-Hermite quadrature implementation and the Laplace
+adaptive Gauss-Hermite quadrature (AGHQ) implementation and the Laplace
 implementation in the `lme4` package. First, we assign the seeds we will
 use.
 
@@ -58,7 +58,7 @@ Next we assign the functions we will need to perform the simulation
 study.
 
 ``` r
-# simulates from a mixed logit model. 
+# simulates from a GLMM.
 # 
 # Args: 
 #   n_cluster: number of clusters
@@ -68,8 +68,9 @@ study.
 #   n_obs: number of members in each cluster.
 #   get_x: function to get the fixed effect covariate matrix.
 #   get_z: function to get the random effect covariate matrix.
+#   model: characther with model and link function.
 sim_dat <- function(n_cluster = 100L, cor_mat, beta, sig, n_obs = 10L, 
-                    get_x, get_z){
+                    get_x, get_z, model = "binomial_logit"){
   vcov_mat <- sig * cor_mat # the covariance matrix
   
   # simulate the clusters
@@ -85,17 +86,26 @@ sim_dat <- function(n_cluster = 100L, cor_mat, beta, sig, n_obs = 10L,
     # linear predictors
     eta <- drop(beta %*% X +  u %*% Z)
     
-    # the outcome 
-    prob <- 1/(1 + exp(-eta))
-    nis <- sample.int(5L, n_obs, replace = TRUE)
-    y <- rbinom(n_obs, nis, prob)
-    nis <- as.numeric(nis)
-    y <- as.numeric(y)
+    # the outcome
+    group <<- group + 1L
+    if(model == "binomial_logit"){
+      prob <- 1/(1 + exp(-eta))
+      nis <- sample.int(5L, n_obs, replace = TRUE)
+      y <- rbinom(n_obs, nis, prob)
+      nis <- as.numeric(nis)
+      y <- as.numeric(y)
+      
+      
+    } else if(model == "Poisson_log"){
+      y <- rpois(length(eta), exp(eta))
+      nis <- rep(1, length(y))
+      
+    } else
+      stop("model not implemented")
     
     # return 
-    group <<- group + 1L
     list(y = y, group = rep(group, n_obs), 
-         nis = nis, X = X, Z = Z)
+         nis = nis, X = X, Z = Z, model = model)
   }, simplify = FALSE)
   
   # create a data.frame with the data set and return 
@@ -118,14 +128,17 @@ sim_dat <- function(n_cluster = 100L, cor_mat, beta, sig, n_obs = 10L,
 #   dat: data.frame with the data.
 #   formula: formula to pass to glmer. 
 #   nAGQ: nAGQ argument to pass to glmer.
-est_lme4 <- function(dat, formula, nAGQ = 1L){
+#   family: family to use.
+est_lme4 <- function(dat, formula, nAGQ = 1L, family){
   library(lme4)
-  fit <- glmer(formula = formula, dat, family = binomial(), nAGQ = nAGQ, 
-               weights = nis)
+  fit <- glmer(
+    formula = formula, dat, family = family, nAGQ = nAGQ, weights = nis, 
+    control = glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun=2e5)))
   vc <- VarCorr(fit)
   list(ll = c(logLik(fit)), fixef = fixef(fit), 
        stdev = attr(vc$group, "stddev"), 
-       cor_mat = attr(vc$group, "correlation"))
+       cor_mat = attr(vc$group, "correlation"), 
+       conv = fit@optinfo$conv$opt)
 }
 
 # estimates the model using a GVA. 
@@ -134,7 +147,10 @@ est_lme4 <- function(dat, formula, nAGQ = 1L){
 #   dat: list with a list for each cluster. 
 #   rel_eps: relative convergence threshold.
 #   est_psqn: logical for whether to use psqn.
-est_va <- function(dat, rel_eps = 1e-8, est_psqn, n_threads = 1L){
+#   model: characther with model and link function.
+#   family: family to pass to glm.
+est_va <- function(dat, rel_eps = 1e-8, est_psqn, n_threads = 1L, 
+                   model, formula, family){
   func <- get_lb_optimizer(dat$list_dat, n_threads)
   
   # setup stating values
@@ -149,32 +165,36 @@ est_va <- function(dat, rel_eps = 1e-8, est_psqn, n_threads = 1L){
   if(n_fix > 0)
     par[1:n_fix] <- with(dat$df_dat, glm.fit(
       x = dat$df_dat[, grepl("^X", colnames(dat$df_dat))], 
-      y = y / nis, weights = nis, family = binomial()))[[
+      y = y / nis, weights = nis, family = family))[[
         "coefficients"]]
+  
+  par <- drop(get_start_vals(func, par = par, Sigma = diag(n_rng), 
+                             n_beta = n_fix))
   
   if(est_psqn){
     # use the psqn package
-    # par <- opt_priv(val = par, ptr = func, rel_eps = rel_eps^(2/3),
-    #                 max_it = 100, n_threads = n_threads, c1 = 1e-4, c2 = .9)
     res <- opt_lb(val = par, ptr = func, rel_eps = rel_eps, max_it = 1000L, 
                   n_threads = n_threads, c1 = 1e-4, c2 = .9, cg_tol = .2, 
                   max_cg = max(2L, as.integer(log(n_clust) * 10)))
+    conv <- !res$convergence
     
   } else {
-    # use a Limited-memory BFGS implementation 
+    # use a limited-memory BFGS implementation 
     library(lbfgs)
     fn <- function(x)
       eval_lb   (x, ptr = func, n_threads = n_threads)
     gr <- function(x)
       eval_lb_gr(x, ptr = func, n_threads = n_threads)
     res <- lbfgs(fn, gr, par, invisible = 1)
+    conv <- res$convergence
   }
   
   mod_par <- head(res$par, n_fix + n_rng * (n_rng + 1) / 2)
   Sig_hat <- get_pd_mat(tail(mod_par, -n_fix), n_rng)[[1L]]
   
   list(lb = -res$value, fixef = head(mod_par, n_fix), 
-       stdev = sqrt(diag(Sig_hat)), cor_mat = cov2cor(Sig_hat))
+       stdev = sqrt(diag(Sig_hat)), cor_mat = cov2cor(Sig_hat), 
+       conv = conv)
 }
 ```
 
@@ -198,10 +218,12 @@ get_z <- function(x)
 #   beta: the fixed effect coefficient vector.
 #   prefix: prefix for saved files.
 #   formula: formula for lme4. 
+#   model: characther with model and link function.
 run_study <- function(n_cluster, seeds_use, n_obs = 3L, sig = 1.5, 
                       cor_mat = diag(1), beta = c(-2, -1, 1), 
                       prefix = "univariate", 
-                      formula = y / nis ~ X.V2 + X.dummy + (1 | group))
+                      formula = y / nis ~ X.V2 + X.dummy + (1 | group), 
+                      model = "binomial_logit")
   lapply(seeds_use, function(s){
     f <- file.path("cache", sprintf("%s-%d-%d.RDS", prefix, n_cluster, s))
     if(!file.exists(f)){
@@ -209,27 +231,35 @@ run_study <- function(n_cluster, seeds_use, n_obs = 3L, sig = 1.5,
       set.seed(s)
       dat <- sim_dat(
         n_cluster = n_cluster, cor_mat = cor_mat, beta = beta, 
-        sig = sig, n_obs = n_obs, get_x = get_x, get_z = get_z)
+        sig = sig, n_obs = n_obs, get_x = get_x, get_z = get_z, 
+        model = model)
       
       # fit the model
+      fam <- switch (model,
+        binomial_logit = binomial(), 
+        Poisson_log = poisson(), 
+        stop("model not implemented"))
       lap_time <- system.time(lap_fit <- est_lme4(
-        formula = formula, 
+        formula = formula, family = fam,
         dat = dat$df_dat, nAGQ = 1L))
       if(NCOL(cor_mat) > 1){
         agh_time <- NULL
         agh_fit <- NULL
       } else 
         agh_time <- system.time(agh_fit <- est_lme4(
-          formula = formula, 
+          formula = formula, family = fam,
           dat = dat$df_dat, nAGQ = 25L))
       gva_time <- system.time(
-        gva_fit <- est_va(dat, est_psqn = TRUE, n_threads = 1L))
+        gva_fit <- est_va(dat, est_psqn = TRUE, n_threads = 1L, 
+                          model = model, family = fam))
       gva_time_four <- system.time(
-        gva_fit_four <- est_va(dat, est_psqn = TRUE, n_threads = 4L))
+        gva_fit_four <- est_va(dat, est_psqn = TRUE, n_threads = 4L, 
+                               model = model, family = fam))
       gva_lbfgs_time <- system.time(
-        gva_lbfgs_fit <- est_va(dat, est_psqn = FALSE, n_threads = 1L))
+        gva_lbfgs_fit <- est_va(dat, est_psqn = FALSE, n_threads = 1L, 
+                                model = model, family = fam))
       
-      # extract the bias, the computation time, and and the lower bound
+      # extract the bias, the computation time, and the lower bound
       # or log likelihood and return
       get_bias <- function(x){
         if(is.null(x))
@@ -254,13 +284,18 @@ run_study <- function(n_cluster, seeds_use, n_obs = 3L, sig = 1.5,
                    `GVA (4 threads)` = gva_time_four,
                    `GVA LBFGS` = gva_lbfgs_time)[, 1:3]
       
+      conv <- unlist(sapply(
+        list(Laplace = lap_fit, AGHQ = agh_fit, GVA = gva_fit, 
+             `GVA (4 threads)` = gva_fit_four, `GVA LBFGS` = gva_lbfgs_fit), 
+        `[[`, "conv"))
+      
       . <- function(x)
         if(is.null(x)) NULL else x$ll
       out <- list(bias = bias, time = tis, 
                   lls = c(Laplace = .(lap_fit), AGHQ = .(agh_fit), 
                           GVA = gva_fit$lb, 
                           `GVA (4 threads)` = gva_fit_four$lb, 
-                          `GVA LBFGS` = gva_lbfgs_fit$lb), 
+                          `GVA LBFGS` = gva_lbfgs_fit$lb), conv = conv,
                   seed = s)
       
       message(paste0(capture.output(out), collapse = "\n"))
@@ -275,58 +310,68 @@ run_study <- function(n_cluster, seeds_use, n_obs = 3L, sig = 1.5,
 sim_res_uni <- run_study(1000L, seeds)
 ```
 
-The bias estimates are given below:
+The bias estimates are given below. There are three GVA rows: the `GVA`
+row is using the psqn package with one thread, the `GVA (4 threads)` row
+is using the the psqn package with four threads, and the `GVA LBFGS` row
+is using a limited-memory BFGS implementation.
 
 ``` r
-# function to compute the bias and the standard errors.
+# function to compute the bias estimates and the standard errors.
 comp_bias <- function(results, what){
   errs <- sapply(results, function(x) x$bias[[what]], 
                  simplify = "array")
+  any_non_finite <- apply(!is.finite(errs), 3, any)
+  if(any(any_non_finite)){
+    cat(sprintf("Removing %d non-finite estimates cases\n", 
+                sum(any_non_finite)))
+    errs <- errs[, , !any_non_finite]
+  }
+  
   ests <- apply(errs, 1:2, mean)
   SE <- apply(errs, 1:2, sd) / sqrt(dim(errs)[[3]])
   list(bias = ests, `Standard error` = SE)
 }
 
-# the fixed effect 
+# bias estimates for the fixed effect 
 comp_bias(sim_res_uni, "fixed")
 ```
 
     ## $bias
     ##                 (Intercept)     X.V2   X.dummy
-    ## Laplace           0.0057265 0.004543 -0.005410
-    ## AGHQ              0.0002187 0.003648 -0.004550
-    ## GVA               0.0057922 0.004485 -0.005392
-    ## GVA (4 threads)   0.0057922 0.004485 -0.005392
-    ## GVA LBFGS         0.0057044 0.004474 -0.005367
+    ## Laplace            0.005726 0.004543 -0.005410
+    ## AGHQ               0.000219 0.003648 -0.004550
+    ## GVA                0.005817 0.004497 -0.005416
+    ## GVA (4 threads)    0.005817 0.004497 -0.005416
+    ## GVA LBFGS          0.005705 0.004474 -0.005367
     ## 
     ## $`Standard error`
     ##                 (Intercept)     X.V2  X.dummy
     ## Laplace            0.006462 0.003665 0.006755
     ## AGHQ               0.006512 0.003675 0.006788
-    ## GVA                0.006479 0.003672 0.006789
-    ## GVA (4 threads)    0.006479 0.003672 0.006789
+    ## GVA                0.006478 0.003672 0.006788
+    ## GVA (4 threads)    0.006478 0.003672 0.006788
     ## GVA LBFGS          0.006478 0.003672 0.006787
 
 ``` r
-# the random effect standard deviation
+# bias estimates for the random effect standard deviation
 comp_bias(sim_res_uni, "stdev")
 ```
 
     ## $bias
     ##                 (Intercept)
-    ## Laplace           -0.039098
+    ## Laplace           -0.039097
     ## AGHQ              -0.007815
-    ## GVA               -0.022147
-    ## GVA (4 threads)   -0.022147
-    ## GVA LBFGS         -0.022143
+    ## GVA               -0.022260
+    ## GVA (4 threads)   -0.022260
+    ## GVA LBFGS         -0.022144
     ## 
     ## $`Standard error`
     ##                 (Intercept)
     ## Laplace            0.005343
     ## AGHQ               0.005502
-    ## GVA                0.005343
-    ## GVA (4 threads)    0.005343
-    ## GVA LBFGS          0.005347
+    ## GVA                0.005347
+    ## GVA (4 threads)    0.005347
+    ## GVA LBFGS          0.005346
 
 Summary stats for the computation time are given below:
 
@@ -335,6 +380,17 @@ Summary stats for the computation time are given below:
 time_stats <- function(results){
   tis <- sapply(results, `[[`, "time", simplify = "array")
   tis <- tis[, "elapsed", ]
+  
+  # remove non-finite cases
+  errs <- sapply(results, function(x) x$bias[["fixed"]], 
+                 simplify = "array")
+  any_non_finite <- apply(!is.finite(errs), 3, any)
+  if(any(any_non_finite)){
+    cat(sprintf("Removing %d non-finite estimates cases\n", 
+                sum(any_non_finite)))
+    tis <- tis[, !any_non_finite]
+  }
+  
   cbind(mean    = apply(tis, 1, mean), 
         meadian = apply(tis, 1, median))
 }
@@ -344,11 +400,77 @@ time_stats(sim_res_uni)
 ```
 
     ##                    mean meadian
-    ## Laplace         0.72262  0.7105
-    ## AGHQ            1.85795  1.8550
-    ## GVA             0.23835  0.2400
-    ## GVA (4 threads) 0.06858  0.0680
-    ## GVA LBFGS       2.61117  2.6125
+    ## Laplace         0.40411   0.400
+    ## AGHQ            1.02567   1.008
+    ## GVA             0.23662   0.239
+    ## GVA (4 threads) 0.06879   0.068
+    ## GVA LBFGS       2.45980   2.459
+
+### Poisson Model
+
+We re-run the simulation study below with a Poisson model instead.
+
+``` r
+sim_res_uni_poisson <- run_study(
+  1000L, seeds, model = "Poisson_log", prefix = "Poisson", 
+  formula = y ~ X.V2 + X.dummy + (1 | group))
+```
+
+Here are the results:
+
+``` r
+# bias of the fixed effect 
+comp_bias(sim_res_uni_poisson, "fixed")
+```
+
+    ## $bias
+    ##                 (Intercept)     X.V2  X.dummy
+    ## Laplace          -0.0006674 0.002588 0.001696
+    ## AGHQ             -0.0013045 0.002588 0.001696
+    ## GVA               0.0183506 0.002588 0.001662
+    ## GVA (4 threads)   0.0183506 0.002588 0.001662
+    ## GVA LBFGS         0.0182736 0.002588 0.001696
+    ## 
+    ## $`Standard error`
+    ##                 (Intercept)     X.V2  X.dummy
+    ## Laplace            0.007655 0.002972 0.006768
+    ## AGHQ               0.007624 0.002972 0.006768
+    ## GVA                0.007520 0.002972 0.006768
+    ## GVA (4 threads)    0.007520 0.002972 0.006768
+    ## GVA LBFGS          0.007520 0.002972 0.006768
+
+``` r
+# bias of the random effect standard deviation
+comp_bias(sim_res_uni_poisson, "stdev")
+```
+
+    ## $bias
+    ##                 (Intercept)
+    ## Laplace           -0.020828
+    ## AGHQ              -0.001322
+    ## GVA               -0.041989
+    ## GVA (4 threads)   -0.041989
+    ## GVA LBFGS         -0.041973
+    ## 
+    ## $`Standard error`
+    ##                 (Intercept)
+    ## Laplace            0.004558
+    ## AGHQ               0.004661
+    ## GVA                0.004430
+    ## GVA (4 threads)    0.004430
+    ## GVA LBFGS          0.004430
+
+``` r
+# computation time summary statistics 
+time_stats(sim_res_uni_poisson)
+```
+
+    ##                    mean meadian
+    ## Laplace         0.32440  0.3230
+    ## AGHQ            0.72848  0.7265
+    ## GVA             0.03151  0.0310
+    ## GVA (4 threads) 0.01691  0.0165
+    ## GVA LBFGS       0.30199  0.3020
 
 ### Larger Sample
 
@@ -368,17 +490,17 @@ comp_bias(sim_res_uni_large, "fixed")
     ## $bias
     ##                 (Intercept)     X.V2  X.dummy
     ## Laplace            0.002266 0.001883 0.001770
-    ## AGHQ              -0.003233 0.001022 0.002619
-    ## GVA                0.002258 0.001853 0.001757
-    ## GVA (4 threads)    0.002258 0.001853 0.001757
-    ## GVA LBFGS          0.002247 0.001852 0.001808
+    ## AGHQ              -0.003234 0.001022 0.002620
+    ## GVA                0.002373 0.001882 0.001811
+    ## GVA (4 threads)    0.002373 0.001882 0.001811
+    ## GVA LBFGS          0.002246 0.001852 0.001808
     ## 
     ## $`Standard error`
     ##                 (Intercept)     X.V2  X.dummy
     ## Laplace            0.003335 0.001520 0.003239
     ## AGHQ               0.003358 0.001526 0.003254
-    ## GVA                0.003345 0.001523 0.003254
-    ## GVA (4 threads)    0.003345 0.001523 0.003254
+    ## GVA                0.003346 0.001524 0.003252
+    ## GVA (4 threads)    0.003346 0.001524 0.003252
     ## GVA LBFGS          0.003344 0.001524 0.003253
 
 ``` r
@@ -390,8 +512,8 @@ comp_bias(sim_res_uni_large, "stdev")
     ##                 (Intercept)
     ## Laplace           -0.033339
     ## AGHQ              -0.002072
-    ## GVA               -0.016379
-    ## GVA (4 threads)   -0.016379
+    ## GVA               -0.016519
+    ## GVA (4 threads)   -0.016519
     ## GVA LBFGS         -0.016391
     ## 
     ## $`Standard error`
@@ -408,11 +530,11 @@ time_stats(sim_res_uni_large)
 ```
 
     ##                    mean meadian
-    ## Laplace          3.7858   3.742
-    ## AGHQ            10.4463  10.285
-    ## GVA              1.2292   1.247
-    ## GVA (4 threads)  0.3387   0.340
-    ## GVA LBFGS       21.7458  21.183
+    ## Laplace          1.9081  1.8815
+    ## AGHQ             5.0393  5.0195
+    ## GVA              1.1684  1.1845
+    ## GVA (4 threads)  0.3361  0.3355
+    ## GVA LBFGS       21.2224 21.0550
 
 ## 3D Random Effects
 
@@ -430,7 +552,8 @@ sim_res_mult <- run_study(
   formula = y / nis ~ X.V2 + X.dummy + (1 + X.V2 + X.dummy | group))
 ```
 
-We show the bias and summary statistics for the computation time below.
+We show the bias estimates and summary statistics for the computation
+time below.
 
 ``` r
 # bias of the fixed effect 
@@ -439,16 +562,16 @@ comp_bias(sim_res_mult, "fixed")
 
     ## $bias
     ##                 (Intercept)     X.V2  X.dummy
-    ## Laplace           -0.004653 0.002890 0.005104
-    ## GVA               -0.001765 0.004677 0.005043
-    ## GVA (4 threads)   -0.001758 0.004678 0.005036
+    ## Laplace           -0.004472 0.002628 0.004506
+    ## GVA               -0.001676 0.004653 0.004981
+    ## GVA (4 threads)   -0.001678 0.004655 0.004975
     ## GVA LBFGS         -0.001672 0.004651 0.004986
     ## 
     ## $`Standard error`
     ##                 (Intercept)     X.V2  X.dummy
-    ## Laplace            0.003548 0.003934 0.004448
-    ## GVA                0.003496 0.003903 0.004427
-    ## GVA (4 threads)    0.003497 0.003903 0.004427
+    ## Laplace            0.003522 0.003919 0.004450
+    ## GVA                0.003497 0.003901 0.004427
+    ## GVA (4 threads)    0.003497 0.003902 0.004427
     ## GVA LBFGS          0.003495 0.003902 0.004427
 
 ``` r
@@ -458,16 +581,16 @@ comp_bias(sim_res_mult, "stdev")
 
     ## $bias
     ##                 (Intercept)     X.V2  X.dummy
-    ## Laplace           -0.012345 -0.01621 -0.03574
-    ## GVA               -0.004227 -0.01394 -0.01896
-    ## GVA (4 threads)   -0.004232 -0.01394 -0.01898
-    ## GVA LBFGS         -0.004438 -0.01397 -0.01964
+    ## Laplace           -0.012482 -0.01631 -0.03593
+    ## GVA               -0.004353 -0.01393 -0.01912
+    ## GVA (4 threads)   -0.004356 -0.01393 -0.01911
+    ## GVA LBFGS         -0.004439 -0.01397 -0.01964
     ## 
     ## $`Standard error`
     ##                 (Intercept)     X.V2  X.dummy
-    ## Laplace            0.003920 0.003252 0.005576
-    ## GVA                0.003938 0.003206 0.005414
-    ## GVA (4 threads)    0.003938 0.003206 0.005413
+    ## Laplace            0.003908 0.003236 0.005514
+    ## GVA                0.003938 0.003203 0.005418
+    ## GVA (4 threads)    0.003938 0.003203 0.005419
     ## GVA LBFGS          0.003940 0.003204 0.005419
 
 ``` r
@@ -476,18 +599,18 @@ comp_bias(sim_res_mult, "cor_mat")
 ```
 
     ## $bias
-    ##                      [,1]      [,2]     [,3]
-    ## Laplace         -0.001484 0.0221071 0.003486
-    ## GVA             -0.006265 0.0009839 0.008746
-    ## GVA (4 threads) -0.006249 0.0009956 0.008754
-    ## GVA LBFGS       -0.006094 0.0022286 0.008735
+    ##                      [,1]     [,2]     [,3]
+    ## Laplace         -0.001307 0.022336 0.003455
+    ## GVA             -0.006249 0.001460 0.008775
+    ## GVA (4 threads) -0.006246 0.001483 0.008782
+    ## GVA LBFGS       -0.006094 0.002230 0.008736
     ## 
     ## $`Standard error`
     ##                     [,1]     [,2]     [,3]
-    ## Laplace         0.005590 0.008912 0.007491
-    ## GVA             0.005537 0.008628 0.007226
-    ## GVA (4 threads) 0.005536 0.008623 0.007226
-    ## GVA LBFGS       0.005535 0.008642 0.007238
+    ## Laplace         0.005582 0.008862 0.007487
+    ## GVA             0.005520 0.008642 0.007223
+    ## GVA (4 threads) 0.005523 0.008649 0.007222
+    ## GVA LBFGS       0.005535 0.008641 0.007237
 
 ``` r
 # computation time summary statistics 
@@ -495,12 +618,15 @@ time_stats(sim_res_mult)
 ```
 
     ##                    mean meadian
-    ## Laplace         31.2420 27.2020
-    ## GVA              2.0458  2.0115
-    ## GVA (4 threads)  0.5621  0.5545
-    ## GVA LBFGS       25.2775 25.1475
+    ## Laplace          5.2574  5.2570
+    ## GVA              2.1531  2.0885
+    ## GVA (4 threads)  0.6087  0.5875
+    ## GVA LBFGS       25.3181 24.9505
 
 ## 6D Random Effects
+
+We run a simulation study in this section with six random effects per
+cluster.
 
 ``` r
 # setup for the simulation study
@@ -514,870 +640,218 @@ get_z <- get_x <- function(x){
 }
 
 # run the study
-sim_res_mult <- run_study(
-  n_cluster = 1000L, seeds_use = seeds, sig = 1/sqrt(6), n_obs = 10L, 
-  cor_mat = cor_mat, prefix = "6D", beta = c(-2, rep(1/sqrt(5), 5)),
+sim_res_6D <- run_study(
+  n_cluster = 1000L, seeds_use = seeds, sig = 1/6, 
+  n_obs = 10L, cor_mat = cor_mat, prefix = "6D", 
+  beta = c(-2, rep(1/sqrt(5), 5)),
   formula = y / nis ~ X.X1 + X.X2 + X.X3 + X.X4 + X.X5 + 
     (1 + X.X1 + X.X2 + X.X3 + X.X4 + X.X5 | group))
 ```
 
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 1.11917 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.403593 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.244667 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.615997 (tol = 0.002, component 1)
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.268658 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.520449 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.489672 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.936085 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.429047 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.599627 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.597032 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.441159 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.793819 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.351694 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.203206 (tol = 0.002, component 1)
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.108061 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.848822 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.430678 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.32253 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.487217 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.491331 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.316202 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.892281 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.928681 (tol = 0.002, component 1)
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.721182 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.697925 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.573866 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.524123 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.935555 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.591886 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.336188 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.456633 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 1.04374 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.162241 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.632334 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.417076 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.197951 (tol = 0.002, component 1)
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.250364 (tol = 0.002, component 1)
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.318815 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 1.18981 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.401236 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.904388 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.624994 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.710379 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.535863 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.767539 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.972829 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 1.12141 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.119073 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.385398 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.204715 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.514755 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.505794 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.379443 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.539374 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.344434 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.199823 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.644256 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.495767 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.549978 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.586229 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.350693 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.514165 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.230803 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.137193 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.215522 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.106476 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.466046 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.430049 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.662706 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.577233 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.718141 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.624899 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.476686 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.592227 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 1.08799 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.983095 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.640393 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 1.56757 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.564316 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.189069 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.139609 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.661417 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.654903 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.382112 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.607303 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.547043 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.17863 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.670202 (tol = 0.002, component 1)
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.118862 (tol = 0.002, component 1)
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.813247 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.574972 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.185956 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.362816 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.268974 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.959904 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.397682 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.88108 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.234537 (tol = 0.002, component 1)
-
-    ## Warning in (function (fn, par, lower = rep.int(-Inf, n), upper = rep.int(Inf, :
-    ## failure to converge in 10000 evaluations
-
-    ## Warning in optwrap(optimizer, devfun, start, rho$lower, control = control, :
-    ## convergence code 4 from Nelder_Mead: failure to converge in 10000 evaluations
-
-    ## Warning in checkConv(attr(opt, "derivs"), opt$par, ctrl = control$checkConv, :
-    ## Model failed to converge with max|grad| = 0.540429 (tol = 0.002, component 1)
+We show the bias estimates and summary statistics for the computation
+time below.
+
+``` r
+# bias of the fixed effect 
+comp_bias(sim_res_6D, "fixed")
+```
+
+    ## $bias
+    ##                 (Intercept)       X.X1       X.X2        X.X3       X.X4
+    ## Laplace            0.147065 -0.0246307 -0.0256593 -0.02484397 -0.0257816
+    ## GVA                0.008193 -0.0004003  0.0002840  0.00009311  0.0009278
+    ## GVA (4 threads)    0.008193 -0.0003991  0.0002838  0.00009379  0.0009278
+    ## GVA LBFGS          0.008194 -0.0003997  0.0002823  0.00009396  0.0009255
+    ##                       X.X5
+    ## Laplace         -0.0232167
+    ## GVA              0.0006218
+    ## GVA (4 threads)  0.0006224
+    ## GVA LBFGS        0.0006208
+    ## 
+    ## $`Standard error`
+    ##                 (Intercept)     X.X1     X.X2     X.X3     X.X4     X.X5
+    ## Laplace            0.002631 0.001966 0.002272 0.002147 0.002014 0.001944
+    ## GVA                0.002691 0.001867 0.002188 0.002144 0.001891 0.001786
+    ## GVA (4 threads)    0.002690 0.001867 0.002187 0.002144 0.001891 0.001786
+    ## GVA LBFGS          0.002690 0.001867 0.002188 0.002144 0.001891 0.001786
+
+``` r
+# bias of the random effect standard deviations
+comp_bias(sim_res_6D, "stdev")
+```
+
+    ## $bias
+    ##                 (Intercept)      X.X1      X.X2      X.X3      X.X4     X.X5
+    ## Laplace             0.05582 -0.193100 -0.190815 -0.192642 -0.188739 -0.18643
+    ## GVA                -0.01108 -0.009973 -0.009962 -0.009398 -0.002402 -0.01113
+    ## GVA (4 threads)    -0.01109 -0.009975 -0.009960 -0.009403 -0.002402 -0.01112
+    ## GVA LBFGS          -0.01101 -0.009944 -0.009996 -0.009431 -0.002418 -0.01118
+    ## 
+    ## $`Standard error`
+    ##                 (Intercept)     X.X1     X.X2     X.X3     X.X4     X.X5
+    ## Laplace            0.002791 0.007034 0.004893 0.005488 0.004325 0.004041
+    ## GVA                0.002945 0.002560 0.003003 0.003152 0.003311 0.003174
+    ## GVA (4 threads)    0.002945 0.002560 0.003004 0.003153 0.003310 0.003174
+    ## GVA LBFGS          0.002954 0.002556 0.003007 0.003157 0.003314 0.003180
+
+``` r
+# bias of the correlation coefficients for the random effects
+comp_bias(sim_res_6D, "cor_mat")
+```
+
+    ## $bias
+    ##                      [,1]     [,2]     [,3]      [,4]     [,5]      [,6]
+    ## Laplace         -0.101933 -0.09854 -0.07963 -0.099039 -0.12207 -0.039944
+    ## GVA             -0.002219 -0.01346  0.01078 -0.007057 -0.02337  0.001600
+    ## GVA (4 threads) -0.002215 -0.01345  0.01077 -0.007062 -0.02337  0.001595
+    ## GVA LBFGS       -0.002195 -0.01345  0.01076 -0.007110 -0.02333  0.001559
+    ##                      [,7]    [,8]    [,9]    [,10]   [,11]    [,12]     [,13]
+    ## Laplace          0.040542 0.04409 0.02199 0.023684 0.03180 0.032495  0.068268
+    ## GVA             -0.005542 0.02713 0.01576 0.004724 0.01165 0.005980 -0.007329
+    ## GVA (4 threads) -0.005556 0.02711 0.01577 0.004730 0.01167 0.005989 -0.007334
+    ## GVA LBFGS       -0.005599 0.02714 0.01577 0.004735 0.01167 0.005939 -0.007314
+    ##                    [,14]    [,15]
+    ## Laplace         0.024040  0.03989
+    ## GVA             0.007395 -0.01399
+    ## GVA (4 threads) 0.007406 -0.01399
+    ## GVA LBFGS       0.007410 -0.01402
+    ## 
+    ## $`Standard error`
+    ##                    [,1]    [,2]    [,3]    [,4]    [,5]    [,6]    [,7]    [,8]
+    ## Laplace         0.03443 0.01808 0.01712 0.01676 0.01584 0.04076 0.03194 0.02615
+    ## GVA             0.01211 0.01103 0.01106 0.01047 0.01190 0.01265 0.01299 0.01050
+    ## GVA (4 threads) 0.01211 0.01103 0.01106 0.01047 0.01189 0.01265 0.01299 0.01050
+    ## GVA LBFGS       0.01211 0.01103 0.01106 0.01047 0.01190 0.01266 0.01301 0.01050
+    ##                    [,9]   [,10]   [,11]   [,12]   [,13]   [,14]   [,15]
+    ## Laplace         0.02161 0.03730 0.02923 0.02442 0.02862 0.02235 0.02556
+    ## GVA             0.01192 0.01229 0.01082 0.01006 0.01076 0.01189 0.01001
+    ## GVA (4 threads) 0.01192 0.01230 0.01082 0.01006 0.01076 0.01188 0.01001
+    ## GVA LBFGS       0.01192 0.01230 0.01083 0.01008 0.01076 0.01190 0.01001
+
+``` r
+# computation time summary statistics 
+time_stats(sim_res_6D)
+```
+
+    ##                   mean meadian
+    ## Laplace         81.092  69.453
+    ## GVA              3.796   3.840
+    ## GVA (4 threads)  1.121   1.124
+    ## GVA LBFGS       46.801  45.695
+
+## 6D Random Effects Poisson
+
+We run a simulation study in this section with six random effects per
+cluster using a Poisson model.
+
+``` r
+# run the study
+sim_res_6D_pois <- run_study(
+  n_cluster = 1000L, seeds_use = seeds, sig = 1/6, 
+  n_obs = 10L, cor_mat = cor_mat, prefix = "Poisson_6D", 
+  beta = c(-2, rep(1/sqrt(5), 5)), model = "Poisson_log",
+  formula = y / nis ~ X.X1 + X.X2 + X.X3 + X.X4 + X.X5 + 
+    (1 + X.X1 + X.X2 + X.X3 + X.X4 + X.X5 | group))
+```
+
+We show the bias estimates and summary statistics for the computation
+time below.
+
+``` r
+# bias of the fixed effect 
+comp_bias(sim_res_6D_pois, "fixed")
+```
+
+    ## Removing 1 non-finite estimates cases
+
+    ## $bias
+    ##                 (Intercept)      X.X1         X.X2      X.X3      X.X4
+    ## Laplace             0.09932 -0.002963 -0.003861342 -0.009347 0.0002625
+    ## GVA                 0.02912 -0.002551 -0.000016549 -0.006778 0.0006123
+    ## GVA (4 threads)     0.02911 -0.002551 -0.000017059 -0.006776 0.0006147
+    ## GVA LBFGS           0.02912 -0.002552 -0.000009826 -0.006777 0.0006124
+    ##                      X.X5
+    ## Laplace         -0.009825
+    ## GVA             -0.005376
+    ## GVA (4 threads) -0.005376
+    ## GVA LBFGS       -0.005377
+    ## 
+    ## $`Standard error`
+    ##                 (Intercept)     X.X1     X.X2     X.X3     X.X4     X.X5
+    ## Laplace            0.004837 0.002826 0.002899 0.002659 0.002301 0.002630
+    ## GVA                0.003764 0.002180 0.002088 0.002125 0.001900 0.002036
+    ## GVA (4 threads)    0.003763 0.002180 0.002087 0.002124 0.001899 0.002036
+    ## GVA LBFGS          0.003764 0.002180 0.002088 0.002125 0.001900 0.002036
+
+``` r
+# bias of the random effect standard deviations
+comp_bias(sim_res_6D_pois, "stdev")
+```
+
+    ## Removing 1 non-finite estimates cases
+
+    ## $bias
+    ##                 (Intercept)     X.X1     X.X2     X.X3     X.X4     X.X5
+    ## Laplace             0.18170 -0.05789 -0.05284 -0.05405 -0.05230 -0.04906
+    ## GVA                -0.02153 -0.02016 -0.01675 -0.02056 -0.01679 -0.01804
+    ## GVA (4 threads)    -0.02152 -0.02017 -0.01675 -0.02056 -0.01679 -0.01804
+    ## GVA LBFGS          -0.02162 -0.02018 -0.01674 -0.02051 -0.01679 -0.01801
+    ## 
+    ## $`Standard error`
+    ##                 (Intercept)     X.X1     X.X2     X.X3     X.X4     X.X5
+    ## Laplace            0.003818 0.005115 0.004505 0.004894 0.004082 0.004290
+    ## GVA                0.003678 0.003092 0.002907 0.002918 0.003008 0.002801
+    ## GVA (4 threads)    0.003678 0.003091 0.002907 0.002918 0.003008 0.002801
+    ## GVA LBFGS          0.003693 0.003087 0.002907 0.002919 0.003011 0.002800
+
+``` r
+# bias of the correlation coefficients for the random effects
+comp_bias(sim_res_6D_pois, "cor_mat")
+```
+
+    ## Removing 1 non-finite estimates cases
+
+    ## $bias
+    ##                     [,1]      [,2]     [,3]     [,4]      [,5]          [,6]
+    ## Laplace         -0.12005 -0.120031 -0.12613 -0.14214 -0.110762  0.0519871131
+    ## GVA              0.01289 -0.008884 -0.01209 -0.01004 -0.001190 -0.0000008717
+    ## GVA (4 threads)  0.01293 -0.008899 -0.01213 -0.01004 -0.001229 -0.0000126585
+    ## GVA LBFGS        0.01292 -0.008867 -0.01210 -0.01011 -0.001247 -0.0000426178
+    ##                      [,7]    [,8]    [,9]   [,10]     [,11]    [,12]    [,13]
+    ## Laplace          0.035034 0.03443 0.04841 0.02950  0.032171  0.02655  0.01833
+    ## GVA             -0.006746 0.02073 0.01329 0.02612 -0.001874 -0.01423 -0.02220
+    ## GVA (4 threads) -0.006744 0.02073 0.01328 0.02615 -0.001879 -0.01422 -0.02223
+    ## GVA LBFGS       -0.006788 0.02074 0.01328 0.02608 -0.001903 -0.01418 -0.02221
+    ##                     [,14]    [,15]
+    ## Laplace          0.045087 0.043516
+    ## GVA             -0.009723 0.008918
+    ## GVA (4 threads) -0.009718 0.008907
+    ## GVA LBFGS       -0.009774 0.008918
+    ## 
+    ## $`Standard error`
+    ##                    [,1]    [,2]    [,3]    [,4]    [,5]    [,6]    [,7]    [,8]
+    ## Laplace         0.01639 0.01202 0.01223 0.01195 0.01199 0.01645 0.01809 0.01564
+    ## GVA             0.01190 0.01142 0.01139 0.01238 0.01116 0.01035 0.01135 0.01093
+    ## GVA (4 threads) 0.01190 0.01142 0.01139 0.01238 0.01115 0.01036 0.01135 0.01093
+    ## GVA LBFGS       0.01191 0.01144 0.01139 0.01240 0.01115 0.01035 0.01134 0.01093
+    ##                    [,9]   [,10]   [,11]   [,12]    [,13]   [,14]   [,15]
+    ## Laplace         0.01421 0.01463 0.01669 0.01484 0.014499 0.01359 0.01642
+    ## GVA             0.01035 0.01098 0.01149 0.01068 0.009794 0.01152 0.01160
+    ## GVA (4 threads) 0.01035 0.01098 0.01149 0.01067 0.009790 0.01152 0.01160
+    ## GVA LBFGS       0.01035 0.01098 0.01150 0.01067 0.009787 0.01152 0.01161
+
+``` r
+# computation time summary statistics 
+time_stats(sim_res_6D_pois)
+```
+
+    ## Removing 1 non-finite estimates cases
+
+    ##                   mean meadian
+    ## Laplace         53.823  51.853
+    ## GVA              4.120   3.987
+    ## GVA (4 threads)  1.364   1.330
+    ## GVA LBFGS       10.907  10.560
 
 ## References
 

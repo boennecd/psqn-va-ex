@@ -370,6 +370,12 @@ struct logit {
       Bp_inner<ghq::nodes_few , ghq::ws_few , ghq::ws_few_log ,
                ghq::n_ghq_few >(mu, sigma);
   }
+  
+  /// twice differential of the log-partition function
+  static double dd_eta(double const x) noexcept {
+    double const exp_x = exp(x);
+    return exp_x / (1 + exp_x) / (1 + exp_x);
+  }
 };
 
 /** expected partition functions for the log link with Poisson data. */
@@ -382,6 +388,10 @@ struct poisson {
   (double const mu, double const sigma) noexcept {
     double const d_mu = std::exp(mu + sigma * sigma * .5);
     return { d_mu, sigma * d_mu };
+  }
+  
+  static double dd_eta(double const x) noexcept {
+    return exp(x);
   }
 };
 } // namespace partition
@@ -705,12 +715,15 @@ struct lower_bound_caller {
 };
 
 class lower_bound_term {
-  // outcomes and size variables
+public:
+  enum models { binomial_logit, Poisson_log };
+  // the model to use
+  models const model;
+  // outcomes and size variables for the binomial distribution
   arma::vec const y, nis;
   // design matrices
   arma::mat const X, Z;
   
-public:
   int const n_beta = X.n_rows, 
              n_rng = Z.n_rows,
              n_sig = (n_rng * (n_rng + 1L)) / 2L,
@@ -735,19 +748,39 @@ private:
   }
   
 public:
-  lower_bound_term(arma::vec const &y, arma::vec const &nis, 
-                   arma::mat const &X, arma::mat const &Z): 
+  lower_bound_term(std::string const &smodel, arma::vec const &y, 
+                   arma::vec const &nis, arma::mat const &X, 
+                   arma::mat const &Z): 
+  model(([&]() -> models {
+    if(smodel == "binomial_logit")
+      return models::binomial_logit;
+    else if(smodel == "Poisson_log")
+      return models::Poisson_log;
+    
+    throw std::invalid_argument("model not implemented");
+    return models::binomial_logit;
+  })()),
   y(y), nis(nis), X(X), Z(Z), 
   norm_constant(([&]() -> double {
-    if(static_cast<size_t>(n_obs) != nis.n_elem)
-      // have to check this now
-      throw std::invalid_argument("invalid nis");
-    
-    double out(n_rng / 2.);
-    for(int i = 0; i < n_obs; ++i)
-      out += std::lgamma(nis[i] + 1) - std::lgamma(y[i] + 1) - 
-        std::lgamma(nis[i] - y[i] + 1);
-    return -out;
+    if(model == models::binomial_logit){
+      if(static_cast<size_t>(n_obs) != nis.n_elem)
+        // have to check this now
+        throw std::invalid_argument("invalid nis");
+      
+      double out(n_rng / 2.);
+      for(int i = 0; i < n_obs; ++i)
+        out += std::lgamma(nis[i] + 1) - std::lgamma(y[i] + 1) - 
+          std::lgamma(nis[i] - y[i] + 1);
+      return -out;
+      
+    } else if(model == models::Poisson_log){
+      double out(n_rng / 2.);
+      for(int i = 0; i < n_obs; ++i)
+        out -= std::lgamma(y[i] + 1);
+      return -out;
+      
+    } else
+      throw std::runtime_error("normalization constant not implemented");
   })()) {
     // checks
     if(X.n_cols != static_cast<size_t>(n_obs))
@@ -757,10 +790,11 @@ public:
   }
   
   lower_bound_term(Rcpp::List dat):
-  lower_bound_term(Rcpp::as<arma::vec>(dat["y"]),
-                   Rcpp::as<arma::vec>(dat["nis"]),
-                   Rcpp::as<arma::mat>(dat["X"]),
-                   Rcpp::as<arma::mat>(dat["Z"])) { }
+  lower_bound_term(Rcpp::as<std::string>(dat["model"]),
+                   Rcpp::as<arma::vec>  (dat["y"]),
+                   Rcpp::as<arma::vec>  (dat["nis"]),
+                   Rcpp::as<arma::mat>  (dat["X"]),
+                   Rcpp::as<arma::mat>  (dat["Z"])) { }
   
   /// sets the working memory.
   static void set_wk_mem(int const max_n_beta, int const max_n_rng, 
@@ -838,11 +872,25 @@ public:
         vec_dot(beta, X.colptr(i)) + vec_dot(va_mu, Z.colptr(i)), 
                cond_sd = std::sqrt(std::abs(
                 quad_form(Lam, Z.colptr(i))));
-      double const B = partition::logit<true>::B(eta, cond_sd);
+      
+      double B(0);
+      if(model == models::binomial_logit)
+        B = partition::logit<true>::B(eta, cond_sd);
+      else if(model == models::Poisson_log)
+        B = partition::poisson    ::B(eta, cond_sd);
+      else
+        throw std::runtime_error("partition function not implemented");
       out += -y[i] * eta + nis[i] * B;
       
       if(comp_grad){
-        auto const Bp = partition::logit<true>::Bp(eta, cond_sd);
+        auto const Bp = ([&]() -> std::array<double, 2L> {
+          if(model == models::binomial_logit)
+            return partition::logit<true>::Bp(eta, cond_sd);
+          else if (model != models::Poisson_log)
+            throw std::runtime_error("partition function not implemented");
+          
+          return   partition::poisson    ::Bp(eta, cond_sd);
+        })();
         double const d_eta = -y[i] + nis[i] * Bp[0];
         dbeta  += d_eta * X.col(i);
         dva_mu += d_eta * Z.col(i);
@@ -1114,6 +1162,70 @@ Rcpp::NumericVector opt_priv
   return par;
 }
 
+/// function used to get starting values
+// [[Rcpp::export(rng = false)]]
+arma::vec get_start_vals(SEXP ptr, arma::vec const &par, 
+                         arma::mat const &Sigma, int const n_beta){
+  Rcpp::XPtr<lb_optim> optim(ptr);
+  std::vector<lower_bound_term const *> funcs = optim->get_ele_funcs();
+  
+  arma::vec out = par;
+  int const n_rng = Sigma.n_cols,
+         n_groups = funcs.size(), 
+           n_vcov = (n_rng * (1 + n_rng)) / 2;
+  
+  if(par.size() != static_cast<size_t>(
+    n_beta + n_vcov + n_groups * (n_rng + n_vcov)) or 
+       par.size() != optim->n_par)
+    throw std::invalid_argument("get_start_vals: invalid par");
+  
+  arma::vec const beta(out.begin(), n_beta);
+  double * va_start = out.begin() + n_beta + n_vcov;
+  arma::mat const Sigma_inv = arma::inv_sympd(Sigma);
+  arma::mat Lam_inv(n_rng, n_rng), 
+  Lam    (n_rng, n_rng), 
+  Lam_chol(n_rng, n_rng);
+  
+  for(auto &t : funcs){
+    lower_bound_term const &term = *t;
+    if(term.n_beta != n_beta or term.n_rng != n_rng)
+      throw std::invalid_argument("get_start_vals: invalid data element");
+    
+    // make Taylor expansion around zero vector
+    Lam_inv = Sigma_inv;
+    for(int i = 0; i < term.n_obs; ++i){
+      double const eta = arma::dot(beta, term.X.col(i));
+      double dd_eta(0.);
+      if     (term.model == lower_bound_term::models::binomial_logit)
+        dd_eta = partition::logit<true>::dd_eta(eta);
+      else if(term.model == lower_bound_term::models::Poisson_log )
+        dd_eta = partition::poisson    ::dd_eta(eta);
+      else 
+        throw std::runtime_error("get_start_vals: model not implemented");
+      
+      for(int j = 0; j < n_rng; ++j)
+        for(int k = 0; k < n_rng; ++k)
+          Lam_inv.at(k, j) += term.Z.at(j, i) * term.Z.at(k, i) * dd_eta;
+    }
+    
+    if(!arma::inv_sympd(Lam, Lam_inv))
+      throw std::runtime_error("get_start_vals: inv_sympd failed");
+    if(!arma::chol(Lam_chol, Lam, "lower"))
+      throw std::runtime_error("get_start_vals: Lam_chol failed");
+    
+    double * theta = va_start + n_rng;
+    for(int j = 0; j < n_rng; ++j){
+      *theta++ = std::log(Lam_chol.at(j, j));
+      for(int i = j + 1; i < n_rng; ++i)
+        *theta++ = Lam_chol.at(i, j);
+    }
+    
+    va_start += n_vcov + n_rng;
+  }
+  
+  return out;
+}
+
 /***R
 # simple function to simulate from a mixed probit model with a random 
 # intercept and a random slope. 
@@ -1153,7 +1265,7 @@ sim_dat <- function(sig, inter, n_cluster = 100L,
     Z <- rbind(1, x)
     group <<- group + 1L
     list(x = x, y = y, group = rep(group, n_obs), 
-         nis = nis, X = Z, Z = Z)
+         nis = nis, X = Z, Z = Z, model = "binomial_logit")
   }, simplify = FALSE)
   
   # create a data.frame with the data set and return 
@@ -1225,8 +1337,9 @@ est_va <- function(dat, rel_eps = 1e-8){
       x = cbind(1, x), y = y / nis, weights = nis, family = binomial()))[[
         "coefficients"]]
 
-  # par <- opt_priv(val = par, ptr = func, rel_eps = rel_eps^(2/3),
-  #                 max_it = 100, n_threads = 1L, c1 = 1e-4, c2 = .9)
+  par <- drop(get_start_vals(func, par = par, Sigma = diag(n_rng), 
+                             n_beta = n_fix))
+  
   res <- opt_lb(val = par, ptr = func, rel_eps = rel_eps, max_it = 1000L, 
                 n_threads = 1L, c1 = 1e-4, c2 = .9, cg_tol = .2, 
                 max_cg = max(2L, as.integer(log(n_clust) * 10)))

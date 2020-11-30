@@ -47,7 +47,7 @@ Then, we can start to run the examples.
 ## Univariate Random Effects
 
 We start with univariate random effects. Here we can compare with the 
-adaptive Gauss-Hermite quadrature implementation and the 
+adaptive Gauss-Hermite quadrature (AGHQ) implementation and the 
 Laplace implementation in the `lme4` package. First, we assign the seeds 
 we will use.
 
@@ -75,7 +75,7 @@ seeds <- c(45093216L, 6708209L, 22871506L, 48729709L, 13815212L, 2445671L,
 Next we assign the functions we will need to perform the simulation study.
 
 ```{r def_funcs}
-# simulates from a mixed logit model. 
+# simulates from a GLMM.
 # 
 # Args: 
 #   n_cluster: number of clusters
@@ -85,8 +85,9 @@ Next we assign the functions we will need to perform the simulation study.
 #   n_obs: number of members in each cluster.
 #   get_x: function to get the fixed effect covariate matrix.
 #   get_z: function to get the random effect covariate matrix.
+#   model: characther with model and link function.
 sim_dat <- function(n_cluster = 100L, cor_mat, beta, sig, n_obs = 10L, 
-                    get_x, get_z){
+                    get_x, get_z, model = "binomial_logit"){
   vcov_mat <- sig * cor_mat # the covariance matrix
   
   # simulate the clusters
@@ -102,17 +103,26 @@ sim_dat <- function(n_cluster = 100L, cor_mat, beta, sig, n_obs = 10L,
     # linear predictors
     eta <- drop(beta %*% X +  u %*% Z)
     
-    # the outcome 
-    prob <- 1/(1 + exp(-eta))
-    nis <- sample.int(5L, n_obs, replace = TRUE)
-    y <- rbinom(n_obs, nis, prob)
-    nis <- as.numeric(nis)
-    y <- as.numeric(y)
+    # the outcome
+    group <<- group + 1L
+    if(model == "binomial_logit"){
+      prob <- 1/(1 + exp(-eta))
+      nis <- sample.int(5L, n_obs, replace = TRUE)
+      y <- rbinom(n_obs, nis, prob)
+      nis <- as.numeric(nis)
+      y <- as.numeric(y)
+      
+      
+    } else if(model == "Poisson_log"){
+      y <- rpois(length(eta), exp(eta))
+      nis <- rep(1, length(y))
+      
+    } else
+      stop("model not implemented")
     
     # return 
-    group <<- group + 1L
     list(y = y, group = rep(group, n_obs), 
-         nis = nis, X = X, Z = Z)
+         nis = nis, X = X, Z = Z, model = model)
   }, simplify = FALSE)
   
   # create a data.frame with the data set and return 
@@ -135,14 +145,17 @@ sim_dat <- function(n_cluster = 100L, cor_mat, beta, sig, n_obs = 10L,
 #   dat: data.frame with the data.
 #   formula: formula to pass to glmer. 
 #   nAGQ: nAGQ argument to pass to glmer.
-est_lme4 <- function(dat, formula, nAGQ = 1L){
+#   family: family to use.
+est_lme4 <- function(dat, formula, nAGQ = 1L, family){
   library(lme4)
-  fit <- glmer(formula = formula, dat, family = binomial(), nAGQ = nAGQ, 
-               weights = nis)
+  fit <- glmer(
+    formula = formula, dat, family = family, nAGQ = nAGQ, weights = nis, 
+    control = glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun=2e5)))
   vc <- VarCorr(fit)
   list(ll = c(logLik(fit)), fixef = fixef(fit), 
        stdev = attr(vc$group, "stddev"), 
-       cor_mat = attr(vc$group, "correlation"))
+       cor_mat = attr(vc$group, "correlation"), 
+       conv = fit@optinfo$conv$opt)
 }
 
 # estimates the model using a GVA. 
@@ -151,7 +164,10 @@ est_lme4 <- function(dat, formula, nAGQ = 1L){
 #   dat: list with a list for each cluster. 
 #   rel_eps: relative convergence threshold.
 #   est_psqn: logical for whether to use psqn.
-est_va <- function(dat, rel_eps = 1e-8, est_psqn, n_threads = 1L){
+#   model: characther with model and link function.
+#   family: family to pass to glm.
+est_va <- function(dat, rel_eps = 1e-8, est_psqn, n_threads = 1L, 
+                   model, formula, family){
   func <- get_lb_optimizer(dat$list_dat, n_threads)
   
   # setup stating values
@@ -166,32 +182,36 @@ est_va <- function(dat, rel_eps = 1e-8, est_psqn, n_threads = 1L){
   if(n_fix > 0)
     par[1:n_fix] <- with(dat$df_dat, glm.fit(
       x = dat$df_dat[, grepl("^X", colnames(dat$df_dat))], 
-      y = y / nis, weights = nis, family = binomial()))[[
+      y = y / nis, weights = nis, family = family))[[
         "coefficients"]]
+  
+  par <- drop(get_start_vals(func, par = par, Sigma = diag(n_rng), 
+                             n_beta = n_fix))
   
   if(est_psqn){
     # use the psqn package
-    # par <- opt_priv(val = par, ptr = func, rel_eps = rel_eps^(2/3),
-    #                 max_it = 100, n_threads = n_threads, c1 = 1e-4, c2 = .9)
     res <- opt_lb(val = par, ptr = func, rel_eps = rel_eps, max_it = 1000L, 
                   n_threads = n_threads, c1 = 1e-4, c2 = .9, cg_tol = .2, 
                   max_cg = max(2L, as.integer(log(n_clust) * 10)))
+    conv <- !res$convergence
     
   } else {
-    # use a Limited-memory BFGS implementation 
+    # use a limited-memory BFGS implementation 
     library(lbfgs)
     fn <- function(x)
       eval_lb   (x, ptr = func, n_threads = n_threads)
     gr <- function(x)
       eval_lb_gr(x, ptr = func, n_threads = n_threads)
     res <- lbfgs(fn, gr, par, invisible = 1)
+    conv <- res$convergence
   }
   
   mod_par <- head(res$par, n_fix + n_rng * (n_rng + 1) / 2)
   Sig_hat <- get_pd_mat(tail(mod_par, -n_fix), n_rng)[[1L]]
   
   list(lb = -res$value, fixef = head(mod_par, n_fix), 
-       stdev = sqrt(diag(Sig_hat)), cor_mat = cov2cor(Sig_hat))
+       stdev = sqrt(diag(Sig_hat)), cor_mat = cov2cor(Sig_hat), 
+       conv = conv)
 }
 ```
 
@@ -215,10 +235,12 @@ get_z <- function(x)
 #   beta: the fixed effect coefficient vector.
 #   prefix: prefix for saved files.
 #   formula: formula for lme4. 
+#   model: characther with model and link function.
 run_study <- function(n_cluster, seeds_use, n_obs = 3L, sig = 1.5, 
                       cor_mat = diag(1), beta = c(-2, -1, 1), 
                       prefix = "univariate", 
-                      formula = y / nis ~ X.V2 + X.dummy + (1 | group))
+                      formula = y / nis ~ X.V2 + X.dummy + (1 | group), 
+                      model = "binomial_logit")
   lapply(seeds_use, function(s){
     f <- file.path("cache", sprintf("%s-%d-%d.RDS", prefix, n_cluster, s))
     if(!file.exists(f)){
@@ -226,27 +248,35 @@ run_study <- function(n_cluster, seeds_use, n_obs = 3L, sig = 1.5,
       set.seed(s)
       dat <- sim_dat(
         n_cluster = n_cluster, cor_mat = cor_mat, beta = beta, 
-        sig = sig, n_obs = n_obs, get_x = get_x, get_z = get_z)
+        sig = sig, n_obs = n_obs, get_x = get_x, get_z = get_z, 
+        model = model)
       
       # fit the model
+      fam <- switch (model,
+        binomial_logit = binomial(), 
+        Poisson_log = poisson(), 
+        stop("model not implemented"))
       lap_time <- system.time(lap_fit <- est_lme4(
-        formula = formula, 
+        formula = formula, family = fam,
         dat = dat$df_dat, nAGQ = 1L))
       if(NCOL(cor_mat) > 1){
         agh_time <- NULL
         agh_fit <- NULL
       } else 
         agh_time <- system.time(agh_fit <- est_lme4(
-          formula = formula, 
+          formula = formula, family = fam,
           dat = dat$df_dat, nAGQ = 25L))
       gva_time <- system.time(
-        gva_fit <- est_va(dat, est_psqn = TRUE, n_threads = 1L))
+        gva_fit <- est_va(dat, est_psqn = TRUE, n_threads = 1L, 
+                          model = model, family = fam))
       gva_time_four <- system.time(
-        gva_fit_four <- est_va(dat, est_psqn = TRUE, n_threads = 4L))
+        gva_fit_four <- est_va(dat, est_psqn = TRUE, n_threads = 4L, 
+                               model = model, family = fam))
       gva_lbfgs_time <- system.time(
-        gva_lbfgs_fit <- est_va(dat, est_psqn = FALSE, n_threads = 1L))
+        gva_lbfgs_fit <- est_va(dat, est_psqn = FALSE, n_threads = 1L, 
+                                model = model, family = fam))
       
-      # extract the bias, the computation time, and and the lower bound
+      # extract the bias, the computation time, and the lower bound
       # or log likelihood and return
       get_bias <- function(x){
         if(is.null(x))
@@ -271,13 +301,18 @@ run_study <- function(n_cluster, seeds_use, n_obs = 3L, sig = 1.5,
                    `GVA (4 threads)` = gva_time_four,
                    `GVA LBFGS` = gva_lbfgs_time)[, 1:3]
       
+      conv <- unlist(sapply(
+        list(Laplace = lap_fit, AGHQ = agh_fit, GVA = gva_fit, 
+             `GVA (4 threads)` = gva_fit_four, `GVA LBFGS` = gva_lbfgs_fit), 
+        `[[`, "conv"))
+      
       . <- function(x)
         if(is.null(x)) NULL else x$ll
       out <- list(bias = bias, time = tis, 
                   lls = c(Laplace = .(lap_fit), AGHQ = .(agh_fit), 
                           GVA = gva_fit$lb, 
                           `GVA (4 threads)` = gva_fit_four$lb, 
-                          `GVA LBFGS` = gva_lbfgs_fit$lb), 
+                          `GVA LBFGS` = gva_lbfgs_fit$lb), conv = conv,
                   seed = s)
       
       message(paste0(capture.output(out), collapse = "\n"))
@@ -292,22 +327,32 @@ run_study <- function(n_cluster, seeds_use, n_obs = 3L, sig = 1.5,
 sim_res_uni <- run_study(1000L, seeds)
 ```
 
-The bias estimates are given below:
+The bias estimates are given below. There are three GVA rows: the `GVA` row 
+is using the psqn package with one thread, the `GVA (4 threads)` row is 
+using the the psqn package with four threads, and the `GVA LBFGS` row is 
+using a limited-memory BFGS implementation. 
 
 ```{r uni_bias_est}
-# function to compute the bias and the standard errors.
+# function to compute the bias estimates and the standard errors.
 comp_bias <- function(results, what){
   errs <- sapply(results, function(x) x$bias[[what]], 
                  simplify = "array")
+  any_non_finite <- apply(!is.finite(errs), 3, any)
+  if(any(any_non_finite)){
+    cat(sprintf("Removing %d non-finite estimates cases\n", 
+                sum(any_non_finite)))
+    errs <- errs[, , !any_non_finite]
+  }
+  
   ests <- apply(errs, 1:2, mean)
   SE <- apply(errs, 1:2, sd) / sqrt(dim(errs)[[3]])
   list(bias = ests, `Standard error` = SE)
 }
 
-# the fixed effect 
+# bias estimates for the fixed effect 
 comp_bias(sim_res_uni, "fixed")
 
-# the random effect standard deviation
+# bias estimates for the random effect standard deviation
 comp_bias(sim_res_uni, "stdev")
 ```
 
@@ -318,6 +363,17 @@ Summary stats for the computation time are given below:
 time_stats <- function(results){
   tis <- sapply(results, `[[`, "time", simplify = "array")
   tis <- tis[, "elapsed", ]
+  
+  # remove non-finite cases
+  errs <- sapply(results, function(x) x$bias[["fixed"]], 
+                 simplify = "array")
+  any_non_finite <- apply(!is.finite(errs), 3, any)
+  if(any(any_non_finite)){
+    cat(sprintf("Removing %d non-finite estimates cases\n", 
+                sum(any_non_finite)))
+    tis <- tis[, !any_non_finite]
+  }
+  
   cbind(mean    = apply(tis, 1, mean), 
         meadian = apply(tis, 1, median))
 }
@@ -326,12 +382,42 @@ time_stats <- function(results){
 time_stats(sim_res_uni)
 ```
 
-```{r save_small_uni, echo = FALSE}
+```{r save_small_uni, include = FALSE}
 to_save <- list(
   fixef = comp_bias(sim_res_uni, "fixed"),
   stdev = comp_bias(sim_res_uni, "stdev"),
   time  = time_stats(sim_res_uni))
 saveRDS(to_save, "small-uni-res.RDS")
+```
+
+### Poisson Model
+We re-run the simulation study below with a Poisson model instead.
+
+```{r poisson_uni_sim, message = FALSE, warning=FALSE}
+sim_res_uni_poisson <- run_study(
+  1000L, seeds, model = "Poisson_log", prefix = "Poisson", 
+  formula = y ~ X.V2 + X.dummy + (1 | group))
+```
+
+Here are the results:
+
+```{r poisson_uni_res}
+# bias of the fixed effect 
+comp_bias(sim_res_uni_poisson, "fixed")
+
+# bias of the random effect standard deviation
+comp_bias(sim_res_uni_poisson, "stdev")
+
+# computation time summary statistics 
+time_stats(sim_res_uni_poisson)
+```
+
+```{r poisson_large_uni, include = FALSE}
+to_save <- list(
+  fixef = comp_bias(sim_res_uni_poisson, "fixed"),
+  stdev = comp_bias(sim_res_uni_poisson, "stdev"),
+  time  = time_stats(sim_res_uni_poisson))
+saveRDS(to_save, "large-uni-res.RDS")
 ```
 
 ### Larger Sample
@@ -355,7 +441,7 @@ comp_bias(sim_res_uni_large, "stdev")
 time_stats(sim_res_uni_large)
 ```
 
-```{r save_large_uni, echo = FALSE}
+```{r save_large_uni, include = FALSE}
 to_save <- list(
   fixef = comp_bias(sim_res_uni_large, "fixed"),
   stdev = comp_bias(sim_res_uni_large, "stdev"),
@@ -378,7 +464,7 @@ sim_res_mult <- run_study(
   formula = y / nis ~ X.V2 + X.dummy + (1 + X.V2 + X.dummy | group))
 ```
 
-We show the bias and summary statistics for the computation time below.
+We show the bias estimates and summary statistics for the computation time below.
 
 ```{r mult_res}
 # bias of the fixed effect 
@@ -394,7 +480,7 @@ comp_bias(sim_res_mult, "cor_mat")
 time_stats(sim_res_mult)
 ```
 
-```{r save_mult, echo = FALSE}
+```{r save_mult, include = FALSE}
 to_save <- list(
   fixef = comp_bias(sim_res_mult, "fixed"),
   stdev = comp_bias(sim_res_mult, "stdev"),
@@ -405,7 +491,10 @@ saveRDS(to_save, "3D-res.RDS")
 
 ## 6D Random Effects
 
-```{r 6D study, message = FALSE, warning=FALSE}
+We run a simulation study in this section with six random effects per 
+cluster.
+
+```{r 6D_study, message = FALSE, warning=FALSE}
 # setup for the simulation study
 cor_mat <- diag(6)
 
@@ -418,11 +507,14 @@ get_z <- get_x <- function(x){
 
 # run the study
 sim_res_6D <- run_study(
-  n_cluster = 1000L, seeds_use = seeds, sig = 1/sqrt(6), n_obs = 10L, 
-  cor_mat = cor_mat, prefix = "6D", beta = c(-2, rep(1/sqrt(5), 5)),
+  n_cluster = 1000L, seeds_use = seeds, sig = 1/6, 
+  n_obs = 10L, cor_mat = cor_mat, prefix = "6D", 
+  beta = c(-2, rep(1/sqrt(5), 5)),
   formula = y / nis ~ X.X1 + X.X2 + X.X3 + X.X4 + X.X5 + 
     (1 + X.X1 + X.X2 + X.X3 + X.X4 + X.X5 | group))
 ```
+
+We show the bias estimates and summary statistics for the computation time below.
 
 ```{r 6D_res}
 # bias of the fixed effect 
@@ -438,13 +530,53 @@ comp_bias(sim_res_6D, "cor_mat")
 time_stats(sim_res_6D)
 ```
 
-```{r 6D_save_mult, echo = FALSE}
+```{r 6D_save_mult, include = FALSE}
 to_save <- list(
   fixef = comp_bias(sim_res_6D, "fixed"),
   stdev = comp_bias(sim_res_6D, "stdev"),
   cor_mat = comp_bias(sim_res_6D, "cor_mat"),
   time  = time_stats(sim_res_6D))
 saveRDS(to_save, "6D-res.RDS")
+```
+
+## 6D Random Effects Poisson
+
+We run a simulation study in this section with six random effects per 
+cluster using a Poisson model.
+
+```{r poisson_6D_study, message = FALSE, warning=FALSE}
+# run the study
+sim_res_6D_pois <- run_study(
+  n_cluster = 1000L, seeds_use = seeds, sig = 1/6, 
+  n_obs = 10L, cor_mat = cor_mat, prefix = "Poisson_6D", 
+  beta = c(-2, rep(1/sqrt(5), 5)), model = "Poisson_log",
+  formula = y / nis ~ X.X1 + X.X2 + X.X3 + X.X4 + X.X5 + 
+    (1 + X.X1 + X.X2 + X.X3 + X.X4 + X.X5 | group))
+```
+
+We show the bias estimates and summary statistics for the computation time below.
+
+```{r poisson_6D_res}
+# bias of the fixed effect 
+comp_bias(sim_res_6D_pois, "fixed")
+
+# bias of the random effect standard deviations
+comp_bias(sim_res_6D_pois, "stdev")
+
+# bias of the correlation coefficients for the random effects
+comp_bias(sim_res_6D_pois, "cor_mat")
+
+# computation time summary statistics 
+time_stats(sim_res_6D_pois)
+```
+
+```{r poisson_6D_save_mult, include = FALSE}
+to_save <- list(
+  fixef = comp_bias(sim_res_6D_pois, "fixed"),
+  stdev = comp_bias(sim_res_6D_pois, "stdev"),
+  cor_mat = comp_bias(sim_res_6D_pois, "cor_mat"),
+  time  = time_stats(sim_res_6D_pois))
+saveRDS(to_save, "Poisson-6D-res.RDS")
 ```
 
 ## References
