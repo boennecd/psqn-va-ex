@@ -373,15 +373,15 @@
     },
     "psqn": {
       "Package": "psqn",
-      "Version": "0.1.5",
+      "Version": "0.2.0",
       "Source": "GitHub",
       "RemoteType": "github",
       "RemoteHost": "api.github.com",
-      "RemoteUsername": "boennecd",
       "RemoteRepo": "psqn",
-      "RemoteRef": "master",
-      "RemoteSha": "6b93a721ac443d28f29e4737ce3514369a9d2927",
-      "Hash": "342d9b2afe497b952e9b3f968724aeeb"
+      "RemoteUsername": "boennecd",
+      "RemoteRef": "HEAD",
+      "RemoteSha": "9880c54646b030853df27ac1e2d6d2d52ac18a30",
+      "Hash": "5b0fcf98f0c899b41f451a8a8b8b72f3"
     },
     "rematch2": {
       "Package": "rematch2",
@@ -389,6 +389,13 @@
       "Source": "Repository",
       "Repository": "CRAN",
       "Hash": "76c9e04c712a05848ae7a23d2f170a40"
+    },
+    "remotes": {
+      "Package": "remotes",
+      "Version": "2.3.0",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "92ea77818b3bb83c699008451af32b86"
     },
     "renv": {
       "Package": "renv",

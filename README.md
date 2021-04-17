@@ -400,11 +400,11 @@ time_stats(sim_res_uni)
 ```
 
     ##                    mean meadian
-    ## Laplace         0.40411   0.400
-    ## AGHQ            1.02567   1.008
-    ## GVA             0.23662   0.239
-    ## GVA (4 threads) 0.06879   0.068
-    ## GVA LBFGS       2.45980   2.459
+    ## Laplace         0.39918  0.3965
+    ## AGHQ            1.01240  0.9950
+    ## GVA             0.23631  0.2395
+    ## GVA (4 threads) 0.06832  0.0680
+    ## GVA LBFGS       2.44273  2.4175
 
 ### Poisson Model
 
@@ -466,11 +466,11 @@ time_stats(sim_res_uni_poisson)
 ```
 
     ##                    mean meadian
-    ## Laplace         0.32440  0.3230
-    ## AGHQ            0.72848  0.7265
-    ## GVA             0.03151  0.0310
-    ## GVA (4 threads) 0.01691  0.0165
-    ## GVA LBFGS       0.30199  0.3020
+    ## Laplace         0.32536   0.324
+    ## AGHQ            0.72737   0.725
+    ## GVA             0.03169   0.032
+    ## GVA (4 threads) 0.01515   0.015
+    ## GVA LBFGS       0.29941   0.302
 
 ### Larger Sample
 
@@ -530,11 +530,11 @@ time_stats(sim_res_uni_large)
 ```
 
     ##                    mean meadian
-    ## Laplace          1.9081  1.8815
-    ## AGHQ             5.0393  5.0195
-    ## GVA              1.1684  1.1845
-    ## GVA (4 threads)  0.3361  0.3355
-    ## GVA LBFGS       21.2224 21.0550
+    ## Laplace          1.8577   1.845
+    ## AGHQ             4.9224   4.920
+    ## GVA              1.1580   1.182
+    ## GVA (4 threads)  0.3296   0.336
+    ## GVA LBFGS       20.9588  20.809
 
 ## 3D Random Effects
 
@@ -618,10 +618,10 @@ time_stats(sim_res_mult)
 ```
 
     ##                    mean meadian
-    ## Laplace          5.2574  5.2570
-    ## GVA              2.1531  2.0885
-    ## GVA (4 threads)  0.6087  0.5875
-    ## GVA LBFGS       25.3181 24.9505
+    ## Laplace          5.1964  5.2125
+    ## GVA              2.1419  2.0905
+    ## GVA (4 threads)  0.6011  0.5835
+    ## GVA LBFGS       25.1598 24.8245
 
 ## 6D Random Effects
 
@@ -734,10 +734,10 @@ time_stats(sim_res_6D)
 ```
 
     ##                   mean meadian
-    ## Laplace         81.092  69.453
-    ## GVA              3.796   3.840
-    ## GVA (4 threads)  1.121   1.124
-    ## GVA LBFGS       46.801  45.695
+    ## Laplace         88.664  75.874
+    ## GVA              4.016   3.958
+    ## GVA (4 threads)  1.280   1.214
+    ## GVA LBFGS       49.652  47.704
 
 ## 6D Random Effects Poisson
 
@@ -848,10 +848,10 @@ time_stats(sim_res_6D_pois)
     ## Removing 1 non-finite estimates cases
 
     ##                   mean meadian
-    ## Laplace         53.823  51.853
-    ## GVA              4.120   3.987
-    ## GVA (4 threads)  1.364   1.330
-    ## GVA LBFGS       10.907  10.560
+    ## Laplace         56.209  53.272
+    ## GVA              4.182   4.066
+    ## GVA (4 threads)  1.443   1.363
+    ## GVA LBFGS       11.398  10.972
 
 ## References
 
@@ -861,7 +861,7 @@ time_stats(sim_res_6D_pois)
 
 Ormerod, J. T., and M. P. Wand. 2012. “Gaussian Variational Approximate
 Inference for Generalized Linear Mixed Models.” *Journal of
-Computational and Graphical Statistics* 21 (1). Taylor & Francis: 2–17.
+Computational and Graphical Statistics* 21 (1): 2–17.
 <https://doi.org/10.1198/jcgs.2011.09118>.
 
 </div>
