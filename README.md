@@ -155,7 +155,7 @@ est_lme4 <- function(dat, formula, nAGQ = 1L, family){
 #   dat: list with a list for each cluster. 
 #   rel_eps: relative convergence threshold.
 #   est_psqn: logical for whether to use psqn.
-#   model: characther with model and link function.
+#   model: character with model and link function.
 #   family: family to pass to glm.
 est_va <- function(dat, rel_eps = 1e-8, est_psqn, n_threads = 1L, 
                    model, formula, family){
@@ -408,11 +408,11 @@ time_stats(sim_res_uni)
 ```
 
     ##                   mean meadian
-    ## Laplace         0.3442   0.324
-    ## AGHQ            0.6982   0.699
-    ## GVA             0.1318   0.129
-    ## GVA (4 threads) 0.0388   0.038
-    ## GVA LBFGS       1.1984   1.199
+    ## Laplace         0.3406   0.325
+    ## AGHQ            0.6864   0.672
+    ## GVA             0.1304   0.127
+    ## GVA (4 threads) 0.0382   0.038
+    ## GVA LBFGS       1.1928   1.204
 
 ### Poisson Model
 
@@ -538,11 +538,11 @@ time_stats(sim_res_uni_large)
 ```
 
     ##                    mean meadian
-    ## Laplace          1.4082   1.364
-    ## AGHQ             3.4256   3.503
-    ## GVA              0.6482   0.667
-    ## GVA (4 threads)  0.1936   0.193
-    ## GVA LBFGS       10.7762  10.510
+    ## Laplace          1.4332   1.383
+    ## AGHQ             3.3504   3.448
+    ## GVA              0.6454   0.658
+    ## GVA (4 threads)  0.1872   0.193
+    ## GVA LBFGS       10.8520  10.691
 
 ## 3D Random Effects
 

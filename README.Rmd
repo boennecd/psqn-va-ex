@@ -166,7 +166,7 @@ est_lme4 <- function(dat, formula, nAGQ = 1L, family){
 #   dat: list with a list for each cluster. 
 #   rel_eps: relative convergence threshold.
 #   est_psqn: logical for whether to use psqn.
-#   model: characther with model and link function.
+#   model: character with model and link function.
 #   family: family to pass to glm.
 est_va <- function(dat, rel_eps = 1e-8, est_psqn, n_threads = 1L, 
                    model, formula, family){
