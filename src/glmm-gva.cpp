@@ -421,6 +421,7 @@ public:
       dva_mu += sig_inv_va_mu;
       
       {
+        // TODO: we can compute this from the Cholesky decomposition
         arma::mat lam_inv(get_wk_mem(n_rng_sq), n_rng, n_rng, false); 
         if(!arma::inv_sympd(lam_inv, Lam))
           half_term = std::numeric_limits<double>::quiet_NaN();
@@ -434,6 +435,7 @@ public:
       for(unsigned i = 0; i < n_rng; ++i)
         for(unsigned j = 0; j < n_rng; ++j)
           Lam.at(j, i) += va_mu[i] * va_mu[j];
+      
       tri_solve_original(Sig_L_compact, Lam.begin(), n_rng, n_rng);
       arma::mat tmp(d_pd_mem, n_rng, n_rng, false);
       tmp = Lam.t();
