@@ -12,31 +12,23 @@
 #include <memory.h>
 #include <algorithm>
 #include <numeric>
+#include <R_ext/RS.h> // F77_... macros
+
+#ifdef FC_LEN_T
+# define FCLEN ,FC_LEN_T
+# define FCONE ,(FC_LEN_T)1
+#else
+# define FCLEN
+# define FCONE
+#endif
 
 #ifdef DO_PROF
 #include <gperftools/profiler.h>
 #endif
 
+/* contains functions to computed the needed expectations of the log partition 
+ * functions */
 #include "log-partition.h"
-
-/// function to test the expected log partition function in R
-// [[Rcpp::export(rng = false)]]
-Rcpp::NumericVector logit_partition
-  (double const mu, double const sigma, unsigned const order, 
-   bool const adaptive = true){
-  if       (order == 0L){
-    Rcpp::NumericVector out(1);
-    double const val{partition::logit::B(mu, sigma, adaptive)};
-    return Rcpp::NumericVector{val};
-  } else if(order == 1L){
-    auto res = partition::logit::Bp(mu, sigma, adaptive);
-    Rcpp::NumericVector out{res[0], res[1]};
-    out.attr("value") = res[2];
-    return out;
-  }
-  
-  return Rcpp::NumericVector();
-}
 
 // implement the lower bound 
 
@@ -89,51 +81,6 @@ struct dpd_mat {
   }
 };
 
-// functions to check the above
-// [[Rcpp::export(rng = false)]]
-Rcpp::List get_pd_mat(Rcpp::NumericVector theta, unsigned const dim){
-  arma::mat L(dim, dim), 
-          res(dim, dim);
-  get_pd_mat(&theta[0], L, res);
-  return Rcpp::List::create(Rcpp::Named("X") = res, 
-                            Rcpp::Named("L") = L);
-}
-
-// [[Rcpp::export(rng = false)]]
-Rcpp::NumericVector d_get_pd_mat(arma::vec const &gr, arma::mat const &L){
-  unsigned const n = L.n_cols;
-  Rcpp::NumericVector out((n * (n + 1)) / 2, 0);
-  std::unique_ptr<double[]> wk_mem(new double[dpd_mat::n_wmem(n)]);
-  dpd_mat::get(L, &out[0], gr.begin(), wk_mem.get());
-  return out;
-}
-
-/***R
-# setup
-n <- 5
-set.seed(1L)
-X <- drop(rWishart(1, n, diag(n)))
-L <- t(chol(X))
-diag(L) <- log(diag(L))
-theta <- L[lower.tri(L, TRUE)]
-
-# checks
-all.equal(X, get_pd_mat(theta, n)[[1L]])
-
-library(numDeriv)
-gr_truth <- grad(
-  function(x) sum(sin(get_pd_mat(x, n)[[1L]])), theta)
-gr <- cos(c(X))
-L <- get_pd_mat(theta, n)[[2L]]
-all.equal(gr_truth, d_get_pd_mat(gr, L))
-
-# should not be a bottleneck?
-bench::mark(
-    get_pd_mat = get_pd_mat(theta, n),
-  d_get_pd_mat = d_get_pd_mat(cos(c(X)), L),
-  check = FALSE, min_time = .5, max_iterations = 1e6)
-*/
-
 inline double vec_dot(arma::vec const &x, double const *y) noexcept {
   return std::inner_product(x.begin(), x.end(), y, 0.);
 }
@@ -153,8 +100,8 @@ inline double quad_form(arma::mat const &X, double const *x) noexcept {
 }
 
 /** 
- * compute the log log_deter of X = LL^T given L where L is a lower triangular 
- * matrix
+ * compute the log of the determinant of X = LL^T given L where L is a lower 
+ * triangular matrix.
  */
 inline double log_deter(arma::mat const &L){
   double out{};
@@ -164,6 +111,50 @@ inline double log_deter(arma::mat const &L){
     out += log(*l);
   return 2 * out;
 }
+
+extern "C" {
+  /// either performs a forward or backward solve
+  void F77_NAME(dtpsv)
+    (const char * /* uplo */, const char * /* trans */, const char * /* diag */,
+     const int * /* n */, const double * /* ap */, double * /* x */, 
+     const int * /* incx */ FCLEN FCLEN FCLEN);
+
+  /// computes the inverse from the Choleksy factorization
+  void F77_NAME(dpptri)
+    (const char * /* uplo */, const int * /* n */, double *ap, 
+     int * /* info */ FCLEN);
+}
+
+// copies a lower triangular matrix of a n x n matrix into a n(n + 1) / 2 vector
+inline void copy_lower_tri(arma::mat const &X, double * __restrict__ res){
+  arma::uword const n = X.n_cols;
+  for(arma::uword j = 0; j < n; ++j)
+    for(arma::uword i = j; i < n; ++i)
+      *res++ = X.at(i, j);
+}
+
+/** 
+ * given a n(n + 1) / 2 vector containing a lower triangular matrix X
+ * and a n x k matrix A, this function solves XY = A or X^TY = A
+ */
+inline void tri_solve(double const *x, double * A, int const n, 
+                      int const k, bool const transpose){
+  char const uplo{'L'}, 
+             trans = transpose ? 'T' : 'N', 
+             diag{'N'};
+  int const incx{1};
+  
+  for(int i = 0; i < k; ++i, A += n)
+    F77_CALL(dtpsv)
+    (&uplo, &trans, &diag, &n, x, A, &incx FCONE FCONE FCONE);
+}
+
+/// same as tri_solve but finds XX^TY = A 
+inline void tri_solve_original
+  (double const *x, double *A, int const n, int const k){
+  tri_solve(x, A, n, k, false);
+  tri_solve(x, A, n, k, true);
+}  
   
 // needs to be forward declared due for lower_bound_caller 
 class lower_bound_term;
@@ -180,6 +171,8 @@ struct lower_bound_caller {
   std::array<unsigned, 2> dims;
   arma::mat Sig, Sig_L, Sig_inv;
   double Sig_log_deter;
+  // stores Sig_L in compact form 
+  std::unique_ptr<double> Sig_L_compact;
   
   lower_bound_caller(std::vector<lower_bound_term const*>&);
   void setup(double const *val, bool const comp_grad);
@@ -276,7 +269,8 @@ public:
     constexpr size_t const mult = cacheline_size() / sizeof(double),
                        min_size = 2L * mult;
     
-    size_t n_ele = std::max<size_t>(7L * max_n_rng * max_n_rng, min_size);
+    size_t n_ele = std::max<size_t>
+      (8L * max_n_rng * max_n_rng + max_n_rng, min_size);
     n_ele = (n_ele + mult - 1L) / mult;
     n_ele *= mult;
     n_ele += dpd_mat::n_wmem(max_n_rng);
@@ -323,6 +317,7 @@ public:
     
     arma::mat const &Sig_L = caller.Sig_L, 
                   &Sig_inv = caller.Sig_inv;
+    double const * const Sig_L_compact{caller.Sig_L_compact.get()};
     
     // objects for partial derivatives
     arma::vec dbeta(gr + beta_start , comp_grad ? n_beta : 0, false), 
@@ -394,12 +389,18 @@ public:
     half_term -= caller.Sig_log_deter;
     half_term += log_deter(Lam_L);
     
-    // TODO: not numerically stable
-    arma::vec const sig_inv_va_mu = Sig_inv * va_mu; // TODO: memory allocation
-    half_term -= vec_dot(sig_inv_va_mu, va_mu.begin());
+    arma::vec sig_inv_va_mu(get_wk_mem(n_rng), n_rng, false);
+    std::copy(va_mu.begin(), va_mu.end(), sig_inv_va_mu.begin());
+    tri_solve(Sig_L_compact, sig_inv_va_mu.begin(), n_rng, 1, false);
+    half_term -= vec_dot(sig_inv_va_mu, sig_inv_va_mu.begin());
+    tri_solve(Sig_L_compact, sig_inv_va_mu.begin(), n_rng, 1, true);
+    
+    arma::mat Sig_inv_Lam(get_wk_mem(n_rng_sq), n_rng, n_rng, false);
+    std::copy(Lam.begin(), Lam.end(), Sig_inv_Lam.begin());
+    tri_solve_original(Sig_L_compact, Sig_inv_Lam.begin(), n_rng, n_rng);
+    
     for(unsigned i = 0; i < n_rng; ++i){
-      for(unsigned j = 0; j < i; ++j){ 
-        half_term -= 2 * Sig_inv.at(j, i) * Lam.at(j, i);
+      for(unsigned j = 0; j < i; ++j){
         if(comp_grad){
           double const d_term = .5 * Sig_inv.at(j, i);
           dLam.at(j, i) += d_term;
@@ -408,7 +409,7 @@ public:
           dSig.at(i, j) += d_term;
         }
       }
-      half_term -= Sig_inv.at(i, i) * Lam.at(i, i);
+      half_term -= Sig_inv_Lam.at(i, i);
       if(comp_grad){
         dLam.at(i, i) += .5 * Sig_inv.at(i, i);
         dSig.at(i, i) += .5 * Sig_inv.at(i, i);
@@ -420,8 +421,7 @@ public:
       dva_mu += sig_inv_va_mu;
       
       {
-        arma::mat lam_inv(
-            get_wk_mem(n_rng_sq), n_rng, n_rng, false); 
+        arma::mat lam_inv(get_wk_mem(n_rng_sq), n_rng, n_rng, false); 
         if(!arma::inv_sympd(lam_inv, Lam))
           half_term = std::numeric_limits<double>::quiet_NaN();
         else
@@ -434,9 +434,11 @@ public:
       for(unsigned i = 0; i < n_rng; ++i)
         for(unsigned j = 0; j < n_rng; ++j)
           Lam.at(j, i) += va_mu[i] * va_mu[j];
+      tri_solve_original(Sig_L_compact, Lam.begin(), n_rng, n_rng);
       arma::mat tmp(d_pd_mem, n_rng, n_rng, false);
-      tmp = .5 * (Sig_inv * Lam * Sig_inv); // TODO: many temporaries ?
-      dSig -= tmp; 
+      tmp = Lam.t();
+      tri_solve_original(Sig_L_compact, tmp.begin(), n_rng, n_rng);
+      dSig -= .5 * tmp; 
       
       // copy the result
       dpd_mat::get(Sig_L, gr + Sig_start, dSig.begin(), d_pd_mem);
@@ -489,11 +491,14 @@ lower_bound_caller::lower_bound_caller
   })()), 
   Sig(dims[1], dims[1]), Sig_L(dims[1], dims[1]), 
   Sig_inv(dims[1], dims[1]), 
-  Sig_log_deter(std::numeric_limits<double>::quiet_NaN()) { }
+  Sig_log_deter(std::numeric_limits<double>::quiet_NaN()), 
+  Sig_L_compact(new double[(dims[1] * (dims[1] + 1)) / 2]){ }
 
 void lower_bound_caller::setup(double const *val, bool const comp_grad){
-  // compute Sigma and setup the cholesky decomposition 
+  // compute Sigma and setup the Cholesky decomposition 
   get_pd_mat(val + dims[0], Sig_L, Sig);
+  
+  copy_lower_tri(Sig_L, Sig_L_compact.get());
   
   if(!arma::inv_sympd(Sig_inv, Sig)){
     // inversion failed
@@ -692,6 +697,70 @@ arma::vec get_start_vals(SEXP ptr, arma::vec const &par,
   
   return out;
 }
+
+/// function to test the expected log partition function in R
+// [[Rcpp::export(rng = false)]]
+Rcpp::NumericVector logit_partition
+  (double const mu, double const sigma, unsigned const order, 
+   bool const adaptive = true){
+  if       (order == 0L){
+    Rcpp::NumericVector out(1);
+    double const val{partition::logit::B(mu, sigma, adaptive)};
+    return Rcpp::NumericVector{val};
+  } else if(order == 1L){
+    auto res = partition::logit::Bp(mu, sigma, adaptive);
+    Rcpp::NumericVector out{res[0], res[1]};
+    out.attr("value") = res[2];
+    return out;
+  }
+  
+  return Rcpp::NumericVector();
+}
+
+// functions to check get_pd_mat and d_get_pd_mat
+// [[Rcpp::export(rng = false)]]
+Rcpp::List get_pd_mat(Rcpp::NumericVector theta, unsigned const dim){
+  arma::mat L(dim, dim), 
+          res(dim, dim);
+  get_pd_mat(&theta[0], L, res);
+  return Rcpp::List::create(Rcpp::Named("X") = res, 
+                            Rcpp::Named("L") = L);
+}
+
+// [[Rcpp::export(rng = false)]]
+Rcpp::NumericVector d_get_pd_mat(arma::vec const &gr, arma::mat const &L){
+  unsigned const n = L.n_cols;
+  Rcpp::NumericVector out((n * (n + 1)) / 2, 0);
+  std::unique_ptr<double[]> wk_mem(new double[dpd_mat::n_wmem(n)]);
+  dpd_mat::get(L, &out[0], gr.begin(), wk_mem.get());
+  return out;
+}
+
+/***R
+# setup
+n <- 5
+set.seed(1L)
+X <- drop(rWishart(1, n, diag(n)))
+L <- t(chol(X))
+diag(L) <- log(diag(L))
+theta <- L[lower.tri(L, TRUE)]
+
+# checks
+all.equal(X, get_pd_mat(theta, n)[[1L]])
+
+library(numDeriv)
+gr_truth <- grad(
+  function(x) sum(sin(get_pd_mat(x, n)[[1L]])), theta)
+gr <- cos(c(X))
+L <- get_pd_mat(theta, n)[[2L]]
+all.equal(gr_truth, d_get_pd_mat(gr, L))
+
+# should not be a bottleneck?
+bench::mark(
+    get_pd_mat = get_pd_mat(theta, n),
+  d_get_pd_mat = d_get_pd_mat(cos(c(X)), L),
+  check = FALSE, min_time = .5, max_iterations = 1e6)
+*/
 
 // test the expected log partition functions
 /*** R
