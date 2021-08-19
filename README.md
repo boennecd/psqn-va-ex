@@ -408,11 +408,11 @@ time_stats(sim_res_uni)
 ```
 
     ##                   mean meadian
-    ## Laplace         0.3378   0.321
-    ## AGHQ            0.6832   0.671
-    ## GVA             0.1308   0.127
-    ## GVA (4 threads) 0.0388   0.038
-    ## GVA LBFGS       1.2006   1.197
+    ## Laplace         0.3448   0.327
+    ## AGHQ            0.6954   0.687
+    ## GVA             0.1356   0.131
+    ## GVA (4 threads) 0.0400   0.039
+    ## GVA LBFGS       1.2304   1.240
 
 ### Poisson Model
 
@@ -538,11 +538,11 @@ time_stats(sim_res_uni_large)
 ```
 
     ##                    mean meadian
-    ## Laplace          1.4348   1.340
-    ## AGHQ             3.3718   3.560
-    ## GVA              0.6484   0.664
-    ## GVA (4 threads)  0.2022   0.207
-    ## GVA LBFGS       10.9076  10.697
+    ## Laplace          1.4512   1.380
+    ## AGHQ             3.4342   3.480
+    ## GVA              0.6632   0.671
+    ## GVA (4 threads)  0.1898   0.191
+    ## GVA LBFGS       10.9428  10.737
 
 ## 3D Random Effects
 

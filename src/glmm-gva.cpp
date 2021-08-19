@@ -38,13 +38,13 @@ Rcpp::NumericVector logit_partition
 // implement the lower bound 
 
 /// simple function to avoid copying a vector. You can ignore this
-inline arma::vec vec_no_cp(double const * x, size_t const n_ele){
+inline arma::vec vec_no_cp(double const * x, arma::uword const n_ele){
   return arma::vec(const_cast<double *>(x), n_ele, false);
 }
 
 /** Computes LL^T where L is a lower triangular matrix. The argument is a
-    a vector with the non-zero elements in column major order. The diagonal 
-    entries are on the log scale. The method computes both L and LL^T.  */
+ a vector with the non-zero elements in column major order. The diagonal 
+ entries are on the log scale. The method computes both L and LL^T.  */
 void get_pd_mat(double const *theta, arma::mat &L, arma::mat &res){
   unsigned const dim{L.n_rows};
   L.zeros();
@@ -57,102 +57,34 @@ void get_pd_mat(double const *theta, arma::mat &L, arma::mat &res){
   res = L * L.t();
 }
 
-arma::uvec get_commutation_unequal_vec
-  (unsigned const n, unsigned const m, bool const transpose){
-  unsigned const nm = n * m,
-             nnm_p1 = n * nm + 1L,
-              nm_pm = nm + m;
-  arma::uvec out(nm);
-  arma::uword * const o_begin = out.begin();
-  size_t idx = 0L;
-  for(unsigned i = 0; i < n; ++i, idx += nm_pm){
-    size_t idx1 = idx;
-    for(unsigned j = 0; j < m; ++j, idx1 += nnm_p1)
-      if(transpose)
-        *(o_begin + idx1 / nm) = (idx1 % nm);
-      else
-        *(o_begin + idx1 % nm) = (idx1 / nm);
+struct dpd_mat {
+  /**
+   * return the required memory to get the derivative as part of the chain
+   * rule  */
+  static size_t n_wmem(unsigned const dim){
+    return dim * dim;
   }
 
-  return out;
-}
+  /**
+   * computes the derivative w.r.t. theta as part of the chain rule. That is,
+   * the derivatives of f(LL^T) where d/dX f(X) evaluated at X = LL^T
+   * is supplied.
+   */
+  static void get(arma::mat const &L, double * __restrict__ res,
+                  double const * derivs, double * __restrict__ wk_mem){
+    unsigned const dim{L.n_rows};
+    arma::mat D(const_cast<double*>(derivs), dim, dim, false);
+    arma::mat jac(wk_mem, dim, dim, false);
+    jac = D * L;
 
-// cached version of the above
-arma::uvec const & get_commutation_unequal_vec_cached(unsigned const n){
-  constexpr std::size_t n_cache = 1000L;
-  if(n > n_cache or n == 0L)
-    throw std::invalid_argument(
-        "get_commutation_unequal_vec_cached: invalid n (too large or zero)");
-
-  static std::array<arma::uvec, n_cache> cached_values;
-
-  unsigned const idx = n - 1L;
-  bool has_value = cached_values[idx].n_elem > 0;
-
-  if(has_value)
-    return cached_values[idx];
-
-#ifdef _OPENMP
-#pragma omp critical (coomuCached)
-{
-#endif
-  has_value = cached_values[idx].n_elem > 0;
-  if(!has_value)
-    cached_values[idx] =
-      get_commutation_unequal_vec(n, n, false);
-#ifdef _OPENMP
-}
-#endif
-  return cached_values[idx];
-}
-
-/**
- * computes x (X (x) I) where X is a k x p matrix, I is an l dimensional
- * diagonal matrix and x is an l x k vector. The result is stored in the
- * p x l dimensional output.
- */
-inline void x_dot_X_kron_I
-  (arma::vec const &x, arma::mat const &X, unsigned const l,
-   double * const __restrict__ out) {
-  unsigned const k = X.n_rows,
-                 p = X.n_cols,
-                pl = p * l;
-  std::fill(out, out + pl, 0.);
-
-  for(unsigned c = 0; c < p; ++c){
-    for(unsigned r = 0; r < k; ++r){
-      double const mult = X.at(r, c);
-      double const * const x_end = x.memptr() + r * l + l;
-      double * o = out + c * l;
-      for(double const * xp = x.memptr() + r * l;
-          xp != x_end; ++xp, ++o)
-        *o += *xp * mult;
+    double * __restrict__ r = res;
+    for(unsigned j = 0; j < dim; ++j){ 
+      *r++ = 2 * L.at(j, j) * jac.at(j, j);
+      for(unsigned i = j + 1; i < dim; ++i)
+        *r++ = 2 * jac.at(i, j);
     }
   }
-}
-
-/** computes the deratives of get_pd_mat. gr is a Jacobian vector 
-    which is used as part of the chain rule. res holds the memory for the 
-    result and has the same dimension as the pointer passed to 
-    get_pd_mat. */
-void d_get_pd_mat(arma::vec const &gr, arma::mat const &L, 
-                  double * __restrict__ res, double * const work_mem){
-  arma::vec gr_term(work_mem, gr.size(), false);
-  std::copy(gr.begin(), gr.end(), gr_term.begin());
-  gr_term += gr(get_commutation_unequal_vec_cached(L.n_cols));
-  
-  unsigned const n{L.n_cols};
-  arma::mat jac(gr_term.end(), n, n, false);
-  x_dot_X_kron_I(gr_term, L, n, jac.begin());
-
-  // copy the lower triangel and scale the diagonal entries  
-  double * r = res;
-  for(unsigned j = 0; j < n; ++j){
-    *r++ = L.at(j, j) * jac.at(j, j);
-    for(unsigned i = j + 1; i < n; ++i)
-      *r++ = jac.at(i, j);
-  }
-}
+};
 
 // functions to check the above
 // [[Rcpp::export(rng = false)]]
@@ -167,9 +99,9 @@ Rcpp::List get_pd_mat(Rcpp::NumericVector theta, unsigned const dim){
 // [[Rcpp::export(rng = false)]]
 Rcpp::NumericVector d_get_pd_mat(arma::vec const &gr, arma::mat const &L){
   unsigned const n = L.n_cols;
-  Rcpp::NumericVector out((n * (n + 1)) / 2);
-  std::unique_ptr<double[]> wk_mem(new double[gr.n_elem + L.n_elem]);
-  d_get_pd_mat(gr, L, &out[0], wk_mem.get());
+  Rcpp::NumericVector out((n * (n + 1)) / 2, 0);
+  std::unique_ptr<double[]> wk_mem(new double[dpd_mat::n_wmem(n)]);
+  dpd_mat::get(L, &out[0], gr.begin(), wk_mem.get());
   return out;
 }
 
@@ -335,6 +267,7 @@ public:
     size_t n_ele = std::max<size_t>(7L * max_n_rng * max_n_rng, min_size);
     n_ele = (n_ele + mult - 1L) / mult;
     n_ele *= mult;
+    n_ele += dpd_mat::n_wmem(max_n_rng);
     
     mem_per_thread = n_ele;
     n_ele *= max_threads;
@@ -492,16 +425,10 @@ public:
       dSig -= tmp; 
       
       // copy the result 
-      {
-        // TODO: avoid the dummy
-        arma::vec dum(dSig.begin(), dSig.n_elem, false);
-        d_get_pd_mat(dum, Sig_L, gr + Sig_start, d_pd_mem);
-      }
-      {
-        // TODO: avoid the dummy
-        arma::vec dum(dLam.begin(), dLam.n_elem, false);
-        d_get_pd_mat(dum, Lam_L, gr + Lam_start, d_pd_mem);
-      }
+      std::fill(gr + Sig_start, gr + Sig_start + n_rng_sq, 0);
+      dpd_mat::get(Sig_L, gr + Sig_start, dSig.begin(), d_pd_mem);
+      std::fill(gr + Lam_start, gr + Lam_start + n_rng_sq, 0);
+      dpd_mat::get(Lam_L, gr + Lam_start, dLam.begin(), d_pd_mem);
     }
     
     return out;
