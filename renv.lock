@@ -1,6 +1,6 @@
 {
   "R": {
-    "Version": "3.6.3",
+    "Version": "4.1.0",
     "Repositories": [
       {
         "Name": "CRAN",
@@ -373,15 +373,10 @@
     },
     "psqn": {
       "Package": "psqn",
-      "Version": "0.2.0",
-      "Source": "GitHub",
-      "RemoteType": "github",
-      "RemoteHost": "api.github.com",
-      "RemoteRepo": "psqn",
-      "RemoteUsername": "boennecd",
-      "RemoteRef": "HEAD",
-      "RemoteSha": "9880c54646b030853df27ac1e2d6d2d52ac18a30",
-      "Hash": "5b0fcf98f0c899b41f451a8a8b8b72f3"
+      "Version": "0.2.1",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "be64c1b54caa9a2f209e00158358fc52"
     },
     "rematch2": {
       "Package": "rematch2",

@@ -1,7 +1,9 @@
 // [[Rcpp::plugins(openmp, cpp11)]]
-// [[Rcpp::depends(RcppArmadillo, psqn)]]
+// [[Rcpp::depends(RcppArmadillo, psqn, RcppEigen)]]
+#define PSQN_USE_EIGEN
 #define ARMA_NO_DEBUG
 #include <RcppArmadillo.h>
+#include "psqn-Rcpp-wrapper.h"
 #include "psqn.h"
 #include "psqn-reporter.h"
 #include <cmath>
