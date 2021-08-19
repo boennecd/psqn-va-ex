@@ -29,7 +29,9 @@ Rcpp::NumericVector logit_partition
     return Rcpp::NumericVector{val};
   } else if(order == 1L){
     auto res = partition::logit::Bp(mu, sigma, adaptive);
-    return Rcpp::NumericVector{res[0], res[1]};
+    Rcpp::NumericVector out{res[0], res[1]};
+    out.attr("value") = res[2];
+    return out;
   }
   
   return Rcpp::NumericVector();
@@ -286,9 +288,8 @@ public:
     return n_rng + n_sig;
   }
   
-  template<bool comp_grad>
   double comp(double const *p, double *gr, 
-              lower_bound_caller const &caller) const {
+              lower_bound_caller const &caller, bool const comp_grad) const {
     // setup the objects we need
     unsigned const beta_start = 0, 
                     Sig_start = beta_start + n_beta, 
@@ -335,17 +336,18 @@ public:
                cond_sd = std::sqrt(std::abs(
                 quad_form(Lam, Z.colptr(i))));
       
-      double B(0);
-      if(model == models::binomial_logit)
-        B = partition::logit::B(eta, cond_sd, true);
-      else if(model == models::Poisson_log)
-        B = partition::poisson::B(eta, cond_sd);
-      else
-        throw std::runtime_error("partition function not implemented");
-      out += -y[i] * eta + nis[i] * B;
-      
-      if(comp_grad){
-        auto const Bp = ([&]() -> std::array<double, 2L> {
+      if(!comp_grad){
+        double B(0);
+        if(model == models::binomial_logit)
+          B = partition::logit::B(eta, cond_sd, true);
+        else if(model == models::Poisson_log)
+          B = partition::poisson::B(eta, cond_sd);
+        else
+          throw std::runtime_error("partition function not implemented");
+        out += -y[i] * eta + nis[i] * B;
+        
+      } else {
+        std::array<double, 3L> const Bp = ([&]() -> std::array<double, 3L> {
           if(model == models::binomial_logit)
             return partition::logit::Bp(eta, cond_sd, true);
           else if (model != models::Poisson_log)
@@ -353,6 +355,11 @@ public:
           
           return   partition::poisson::Bp(eta, cond_sd);
         })();
+        
+        // the lower bound terms
+        out += -y[i] * eta + nis[i] * Bp[2];
+        
+        // the derivatives
         double const d_eta = -y[i] + nis[i] * Bp[0];
         dbeta  += d_eta * X.col(i);
         dva_mu += d_eta * Z.col(i);
@@ -369,7 +376,7 @@ public:
       }
     }
     
-    // terms from the log of the ratio of the unconditional random effect 
+    // terms from the KL divergence of the unconditional random effect 
     // density and the variational distribution density
     double half_term(0.), 
                deter, 
@@ -424,10 +431,8 @@ public:
       tmp = .5 * (Sig_inv * Lam * Sig_inv); // TODO: many temporaries ?
       dSig -= tmp; 
       
-      // copy the result 
-      std::fill(gr + Sig_start, gr + Sig_start + n_rng_sq, 0);
+      // copy the result
       dpd_mat::get(Sig_L, gr + Sig_start, dSig.begin(), d_pd_mem);
-      std::fill(gr + Lam_start, gr + Lam_start + n_rng_sq, 0);
       dpd_mat::get(Lam_L, gr + Lam_start, dLam.begin(), d_pd_mem);
     }
     
@@ -435,13 +440,13 @@ public:
   }
   
   double func(double const *point, lower_bound_caller const &caller) const {
-    return comp<false>(point, nullptr, caller);
+    return comp(point, nullptr, caller, false);
   }
   
   double grad
   (double const * point, double * gr, 
    lower_bound_caller const &caller) const {
-    return comp<true>(point, gr, caller);
+    return comp(point, gr, caller, true);
   }
   
   bool thread_safe() const {
@@ -845,8 +850,8 @@ library(numDeriv)
 num_aprx <- grad(fn, point, method.args = list(r = 10))
 gr_cpp <- gr(point)
 cbind(num_aprx, gr_cpp, diff = gr_cpp - num_aprx)
-all.equal(num_aprx, gr_cpp, 
-          check.attributes = FALSE)
+stopifnot(isTRUE(
+  all.equal(num_aprx, gr_cpp, check.attributes = FALSE)))
 
 # compare w/ Laplace approximation. First assign functions to estimate the 
 # model

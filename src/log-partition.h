@@ -69,24 +69,31 @@ struct logit {
       : B_inner<20>(mu, sigma, adaptive);
   }
   
-  /// evaluates the derivatives of the expected log partition function 
+  /**
+   * evaluates the derivatives of the expected log partition function. The last 
+   * element is the expected log partition function
+   */
   template<unsigned n_nodes>
-  static std::array<double, 2L> Bp_inner
+  static std::array<double, 3L> Bp_inner
   (double const mu, double const sigma, bool const adaptive) noexcept {
-    std::array<double, 2L> out { 0, 0 };
+    std::array<double, 3L> out { 0, 0, 0 };
     using nw = ghq::nw_pairs<n_nodes>;
     
     if(!adaptive){
       for(unsigned i = 0; i < n_nodes; ++i){
         double const mult = sqrt_2 * nw::ns[i],
                         x = mult * sigma + mu, 
-                    d_eta = nw::ws[i] / (1 + exp(-x));
+                    d_eta = nw::ws[i] / (1 + exp(-x)), 
+                     func = x > 30 ? x : std::log(1 + exp(x));
         out[0] +=        d_eta; // dmu
         out[1] += mult * d_eta; // dsigma
+        out[2] += nw::ws[i] * func;
       }
       
       out[0] *= sqrt_pi_inv;
       out[1] *= sqrt_pi_inv;
+      out[2] *= sqrt_pi_inv;
+      
       return out;
     }
     
@@ -98,18 +105,23 @@ struct logit {
       double const y = nw::ns[i], 
                    z = scale * y + mode,
                    x = sigma * z + mu,
-               d_eta = exp(y * y - z * z * .5 + nw::ws_log[i]) / (1 + exp(-x));
+                func = exp(y * y - z * z * .5 + nw::ws_log[i]),
+               d_eta = func / (1 + exp(-x)), 
+                mult = x > 30 ? x : std::log(1 + exp(x));
       out[0] +=     d_eta; // dmu
       out[1] += z * d_eta; // dsigma
+      out[2] += mult * func;
     }
     
     double const w = sqrt_2pi_inv * scale;
     out[0] *= w;
     out[1] *= w;
+    out[2] *= w;
+    
     return out;
   }
   
-  static std::array<double, 2L> Bp
+  static std::array<double, 3L> Bp
     (double const mu, double const sigma, bool const adaptive) noexcept {
     bool const use_many = mu * mu * 0.1111111 + sigma * sigma > 1;
     return use_many 
@@ -194,10 +206,10 @@ struct poisson {
     return std::exp(mu + sigma * sigma * .5);
   }
   
-  static std::array<double, 2L> Bp
+  static std::array<double, 3L> Bp
   (double const mu, double const sigma) noexcept {
     double const d_mu = std::exp(mu + sigma * sigma * .5);
-    return { d_mu, sigma * d_mu };
+    return { d_mu, sigma * d_mu, d_mu };
   }
   
   static double dd_eta(double const x) noexcept {
