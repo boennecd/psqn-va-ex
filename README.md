@@ -350,7 +350,7 @@ comp_bias(sim_res_uni, "fixed")
     ## AGHQ                0.01686 -0.003957 0.0015530
     ## GVA                 0.02231 -0.003129 0.0007811
     ## GVA (4 threads)     0.02231 -0.003129 0.0007811
-    ## GVA LBFGS           0.02213 -0.003166 0.0008145
+    ## GVA LBFGS           0.02213 -0.003166 0.0008142
     ## 
     ## $`Standard error`
     ##                 (Intercept)    X.V2  X.dummy
@@ -371,7 +371,7 @@ comp_bias(sim_res_uni, "stdev")
     ## AGHQ              -0.003727
     ## GVA               -0.018051
     ## GVA (4 threads)   -0.018051
-    ## GVA LBFGS         -0.017897
+    ## GVA LBFGS         -0.017898
     ## 
     ## $`Standard error`
     ##                 (Intercept)
@@ -408,11 +408,11 @@ time_stats(sim_res_uni)
 ```
 
     ##                   mean meadian
-    ## Laplace         0.3390   0.322
-    ## AGHQ            0.6844   0.673
-    ## GVA             0.1154   0.112
-    ## GVA (4 threads) 0.0354   0.035
-    ## GVA LBFGS       1.0378   1.051
+    ## Laplace         0.3430   0.322
+    ## AGHQ            0.6892   0.678
+    ## GVA             0.1134   0.110
+    ## GVA (4 threads) 0.0344   0.034
+    ## GVA LBFGS       1.0592   1.064
 
 ### Poisson Model
 
@@ -501,7 +501,7 @@ comp_bias(sim_res_uni_large, "fixed")
     ## AGHQ              -0.015596 0.001187 0.004284
     ## GVA               -0.009918 0.002036 0.003460
     ## GVA (4 threads)   -0.009918 0.002036 0.003460
-    ## GVA LBFGS         -0.009986 0.002003 0.003449
+    ## GVA LBFGS         -0.009987 0.002003 0.003449
     ## 
     ## $`Standard error`
     ##                 (Intercept)     X.V2 X.dummy
@@ -530,19 +530,19 @@ comp_bias(sim_res_uni_large, "stdev")
     ## AGHQ                0.01236
     ## GVA                 0.01207
     ## GVA (4 threads)     0.01207
-    ## GVA LBFGS           0.01207
+    ## GVA LBFGS           0.01206
 
 ``` r
 # computation time summary statistics 
 time_stats(sim_res_uni_large)
 ```
 
-    ##                   mean meadian
-    ## Laplace         1.4128   1.322
-    ## AGHQ            3.3768   3.557
-    ## GVA             0.5682   0.571
-    ## GVA (4 threads) 0.1710   0.174
-    ## GVA LBFGS       9.4546   9.366
+    ##                    mean meadian
+    ## Laplace          1.4426   1.340
+    ## AGHQ             3.4472   3.496
+    ## GVA              0.5728   0.565
+    ## GVA (4 threads)  0.1752   0.171
+    ## GVA LBFGS       10.0230  10.032
 
 ## 3D Random Effects
 

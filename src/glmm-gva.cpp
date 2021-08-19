@@ -11,6 +11,7 @@
 #include <limits>
 #include <memory.h>
 #include <algorithm>
+#include <numeric>
 
 #ifdef DO_PROF
 #include <gperftools/profiler.h>
@@ -134,11 +135,7 @@ bench::mark(
 */
 
 inline double vec_dot(arma::vec const &x, double const *y) noexcept {
-  double out(0.);
-  double const *xi = x.begin();
-  for(arma::uword i = 0; i < x.n_elem; ++i)
-    out += *xi++ * *y++;
-  return out;
+  return std::inner_product(x.begin(), x.end(), y, 0.);
 }
 
 inline double quad_form(arma::mat const &X, double const *x) noexcept {
@@ -153,6 +150,19 @@ inline double quad_form(arma::mat const &X, double const *x) noexcept {
   }
   
   return out;
+}
+
+/** 
+ * compute the log log_deter of X = LL^T given L where L is a lower triangular 
+ * matrix
+ */
+inline double log_deter(arma::mat const &L){
+  double out{};
+  unsigned const n = L.n_cols;
+  double const *l = L.begin();
+  for(unsigned i = 0; i < n; ++i, l += n + 1)
+    out += log(*l);
+  return 2 * out;
 }
   
 // needs to be forward declared due for lower_bound_caller 
@@ -169,7 +179,7 @@ struct lower_bound_caller {
    */
   std::array<unsigned, 2> dims;
   arma::mat Sig, Sig_L, Sig_inv;
-  double Sig_det;
+  double Sig_log_deter;
   
   lower_bound_caller(std::vector<lower_bound_term const*>&);
   void setup(double const *val, bool const comp_grad);
@@ -378,14 +388,11 @@ public:
     
     // terms from the KL divergence of the unconditional random effect 
     // density and the variational distribution density
-    double half_term(0.), 
-               deter, 
-              unused;
+    double half_term{};
     
     // determinant terms
-    half_term -= caller.Sig_det;
-    arma::log_det(deter, unused, Lam);
-    half_term += deter;
+    half_term -= caller.Sig_log_deter;
+    half_term += log_deter(Lam_L);
     
     // TODO: not numerically stable
     arma::vec const sig_inv_va_mu = Sig_inv * va_mu; // TODO: memory allocation
@@ -482,7 +489,7 @@ lower_bound_caller::lower_bound_caller
   })()), 
   Sig(dims[1], dims[1]), Sig_L(dims[1], dims[1]), 
   Sig_inv(dims[1], dims[1]), 
-  Sig_det(std::numeric_limits<double>::quiet_NaN()) { }
+  Sig_log_deter(std::numeric_limits<double>::quiet_NaN()) { }
 
 void lower_bound_caller::setup(double const *val, bool const comp_grad){
   // compute Sigma and setup the cholesky decomposition 
@@ -491,13 +498,12 @@ void lower_bound_caller::setup(double const *val, bool const comp_grad){
   if(!arma::inv_sympd(Sig_inv, Sig)){
     // inversion failed
     Sig_inv.zeros(dims[1], dims[1]);
-    Sig_det = std::numeric_limits<double>::quiet_NaN();
+    Sig_log_deter = std::numeric_limits<double>::quiet_NaN();
     return;
   }
   
   // compute the determinant
-  double unused;
-  arma::log_det(Sig_det, unused, Sig);
+  Sig_log_deter = log_deter(Sig_L);
 }
 
 double lower_bound_caller::eval_func
