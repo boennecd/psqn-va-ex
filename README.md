@@ -8,9 +8,9 @@ for the lower bound are shown by Ormerod and Wand (2012). The C++
 implementation is at [src/glmm-gva.cpp](src/glmm-gva.cpp). While this is
 a small example, it should be stressed that:
 
--   The psqn package is particularly useful for variational
+  - The psqn package is particularly useful for variational
     approximations for clustered data. This is not just limited to GVAs.
--   The code for the GLMMs shown here is easy to extend to other types
+  - The code for the GLMMs shown here is easy to extend to other types
     of outcomes and link functions.
 
 First, we source the C++ file:
@@ -408,11 +408,11 @@ time_stats(sim_res_uni)
 ```
 
     ##                   mean meadian
-    ## Laplace         0.3426   0.323
-    ## AGHQ            0.7264   0.717
-    ## GVA             0.1248   0.122
-    ## GVA (4 threads) 0.0420   0.042
-    ## GVA LBFGS       1.1746   1.188
+    ## Laplace         0.3292   0.313
+    ## AGHQ            0.6674   0.656
+    ## GVA             0.1222   0.120
+    ## GVA (4 threads) 0.0352   0.035
+    ## GVA LBFGS       1.1136   1.145
 
 ### Poisson Model
 
@@ -474,11 +474,11 @@ time_stats(sim_res_uni_poisson)
 ```
 
     ##                   mean meadian
-    ## Laplace         0.2504   0.249
-    ## AGHQ            0.4950   0.493
-    ## GVA             0.0352   0.035
-    ## GVA (4 threads) 0.0176   0.016
-    ## GVA LBFGS       0.3694   0.374
+    ## Laplace         0.2354   0.235
+    ## AGHQ            0.4646   0.462
+    ## GVA             0.0334   0.033
+    ## GVA (4 threads) 0.0148   0.015
+    ## GVA LBFGS       0.3502   0.361
 
 ### Larger Sample
 
@@ -538,11 +538,11 @@ time_stats(sim_res_uni_large)
 ```
 
     ##                   mean meadian
-    ## Laplace         1.4114   1.364
-    ## AGHQ            3.3546   3.409
-    ## GVA             0.5846   0.592
-    ## GVA (4 threads) 0.1782   0.180
-    ## GVA LBFGS       9.9180  10.317
+    ## Laplace         1.3476   1.275
+    ## AGHQ            3.2326   3.312
+    ## GVA             0.5960   0.609
+    ## GVA (4 threads) 0.1696   0.174
+    ## GVA LBFGS       9.5336   9.796
 
 ## 3D Random Effects
 
@@ -626,10 +626,10 @@ time_stats(sim_res_mult)
 ```
 
     ##                    mean meadian
-    ## Laplace          3.9888   3.956
-    ## GVA              1.1334   1.084
-    ## GVA (4 threads)  0.3464   0.318
-    ## GVA LBFGS       12.7180  12.280
+    ## Laplace          3.8034   3.792
+    ## GVA              1.1514   1.074
+    ## GVA (4 threads)  0.3168   0.284
+    ## GVA LBFGS       12.2184  11.713
 
 ## 6D Random Effects
 
@@ -737,10 +737,10 @@ time_stats(sim_res_6D)
 ```
 
     ##                     mean meadian
-    ## Laplace         105.3204  73.671
-    ## GVA               2.5618   2.423
-    ## GVA (4 threads)   0.8038   0.768
-    ## GVA LBFGS        24.6358  23.298
+    ## Laplace         100.5400  70.325
+    ## GVA               2.5774   2.418
+    ## GVA (4 threads)   0.7644   0.724
+    ## GVA LBFGS        23.7926  22.445
 
 ## 6D Random Effects Poisson
 
@@ -838,16 +838,16 @@ time_stats(sim_res_6D_pois)
 ```
 
     ##                   mean meadian
-    ## Laplace         50.620  50.191
-    ## GVA              4.445   4.338
-    ## GVA (4 threads)  1.363   1.288
-    ## GVA LBFGS       11.914  11.927
+    ## Laplace         46.460  44.106
+    ## GVA              4.183   4.062
+    ## GVA (4 threads)  1.284   1.227
+    ## GVA LBFGS       11.251  11.114
 
 ## References
 
-<div id="refs" class="references csl-bib-body hanging-indent">
+<div id="refs" class="references">
 
-<div id="ref-Ormerod11" class="csl-entry">
+<div id="ref-Ormerod11">
 
 Ormerod, J. T., and M. P. Wand. 2012. “Gaussian Variational Approximate
 Inference for Generalized Linear Mixed Models.” *Journal of

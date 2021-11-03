@@ -1,6 +1,6 @@
 {
   "R": {
-    "Version": "4.1.0",
+    "Version": "4.1.1",
     "Repositories": [
       {
         "Name": "CRAN",
@@ -71,6 +71,13 @@
       "Source": "Repository",
       "Repository": "CRAN",
       "Hash": "543776ae6848fde2f48ff3816d0628bc"
+    },
+    "bench": {
+      "Package": "bench",
+      "Version": "1.1.1",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "ada12891b62d0de111660ff350e7888f"
     },
     "boot": {
       "Package": "boot",
@@ -364,6 +371,13 @@
       "Repository": "CRAN",
       "Hash": "03446ed0b8129916f73676726cb3c48f"
     },
+    "profmem": {
+      "Package": "profmem",
+      "Version": "0.6.0",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "4974ce1d5ab22f266af90826f295f6c7"
+    },
     "ps": {
       "Package": "ps",
       "Version": "1.4.0",
@@ -373,10 +387,15 @@
     },
     "psqn": {
       "Package": "psqn",
-      "Version": "0.2.1",
-      "Source": "Repository",
-      "Repository": "CRAN",
-      "Hash": "be64c1b54caa9a2f209e00158358fc52"
+      "Version": "0.2.2",
+      "Source": "GitHub",
+      "RemoteType": "github",
+      "RemoteHost": "api.github.com",
+      "RemoteRepo": "psqn",
+      "RemoteUsername": "boennecd",
+      "RemoteRef": "HEAD",
+      "RemoteSha": "74de9de17d3878b6b6343f82501f11735cea46f1",
+      "Hash": "b9447c9243761907b56519e0dc9baa26"
     },
     "rematch2": {
       "Package": "rematch2",
