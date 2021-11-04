@@ -488,7 +488,6 @@ lower_bound_caller::lower_bound_caller
         throw std::invalid_argument(
             "lower_bound_caller::lower_bound_caller: n_rng or n_beta do not match");
     
-    
     return std::array<unsigned, 2L>({ n_beta, n_rng });
   })()), 
   Sig(dims[1], dims[1]), Sig_L(dims[1], dims[1]), 
